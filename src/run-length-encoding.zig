@@ -28,15 +28,13 @@ pub fn RunLengthArray(T: type) type {
         }
 
         pub fn append(self: *Self, item: T, run_length: usize) !void {
-            // TODO: implement equality for non-primitive types using std.mem.eql
-            const sameAsLast = self.count != 0 and self.items[self.count - 1] == item;
-            if (sameAsLast) {
+            if (self.count > 0 and std.meta.eql(item, self.items[self.count - 1])) {
                 self.run_lengths[self.count - 1] += run_length;
                 return;
             }
             if (self.count == self.items.len) {
-                self.items = (try self.allocator.realloc(self.items, self.items.len * 2));
-                self.run_lengths = (try self.allocator.realloc(self.run_lengths, self.items.len * 2));
+                self.items = try self.allocator.realloc(self.items, self.items.len * 2);
+                self.run_lengths = try self.allocator.realloc(self.run_lengths, self.items.len * 2);
             }
             self.items[self.count] = item;
             self.run_lengths[self.count] = run_length;
@@ -52,4 +50,20 @@ pub fn RunLengthArray(T: type) type {
             return error.OutOfBounds;
         }
     };
+}
+
+test "storing values of a primitive type" {
+    var array = try RunLengthArray(isize).init(std.testing.allocator);
+    defer array.deinit();
+    try array.append(-42, 1);
+    try array.append(-42, 1);
+    try std.testing.expectEqual(2, array.run_lengths[0]);
+}
+
+test "storing values of a non-primitive type" {
+    var array = try RunLengthArray(struct { x: u64, y: i32 }).init(std.testing.allocator);
+    defer array.deinit();
+    try array.append(.{ .x = 1, .y = -3 }, 1);
+    try array.append(.{ .x = 1, .y = -3 }, 1);
+    try std.testing.expectEqual(2, array.run_lengths[0]);
 }

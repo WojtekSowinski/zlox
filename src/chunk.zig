@@ -1,6 +1,6 @@
 const std = @import("std");
 const Value = @import("value.zig").Value;
-const rle = @import("run-length-encoding.zig");
+const RunLengthArray = @import("run-length-encoding.zig").RunLengthArray;
 
 pub const OpCode = enum(u8) {
     ret,
@@ -23,7 +23,7 @@ pub const Chunk = struct {
     const Self = @This();
     const CodeArray = std.ArrayList(u8);
     const ValueArray = std.ArrayList(Value);
-    const Lines = rle.RunLengthArray(usize);
+    const Lines = RunLengthArray(usize);
 
     code: CodeArray,
     constants: ValueArray,
@@ -97,13 +97,13 @@ pub const Chunk = struct {
 test "initializing and writing an opcode to a chunk" {
     var chunk = try Chunk.init(std.testing.allocator);
     defer chunk.deinit();
-    try chunk.writeInstruction(.ret);
-    try std.testing.expectEqual(@intFromEnum(Instruction.ret), chunk.code[0]);
+    try chunk.writeInstruction(.ret, 1);
+    try std.testing.expectEqual(@intFromEnum(Instruction.ret), chunk.code.items[0]);
 }
 
 test "reading a one-byte instruction from a chunk" {
     var chunk = try Chunk.init(std.testing.allocator);
     defer chunk.deinit();
-    try chunk.writeInstruction(.ret);
+    try chunk.writeInstruction(.ret, 1);
     try std.testing.expectEqual(.ret, chunk.readInstruction(0));
 }
