@@ -4,6 +4,19 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const fmt_step = b.step("fmt", "Run formatting checks");
+
+    const fmt = b.addFmt(.{
+        .paths = &.{
+            "src",
+            "build.zig",
+        },
+        .check = true,
+    });
+
+    fmt_step.dependOn(&fmt.step);
+    b.default_step.dependOn(fmt_step);
+
     const exe = b.addExecutable(.{
         .name = "zlox",
         .root_source_file = b.path("src/main.zig"),

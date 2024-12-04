@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Value = @import("value.zig").Value;
 const RunLengthArray = @import("run-length-encoding.zig").RunLengthArray;
 
@@ -79,7 +80,12 @@ pub const Chunk = struct {
                 errdefer self.pop();
             },
             .long_con => |index| {
-                try self.writeMany(std.mem.toBytes(index)[0..3]);
+                const bytes = std.mem.toBytes(index);
+                if (comptime builtin.cpu.arch.endian() == .little) {
+                    try self.writeMany(bytes[0..3]);
+                } else {
+                    try self.writeMany(bytes[1..]);
+                }
                 errdefer for (0..3) |_| self.pop();
             },
             else => {},
