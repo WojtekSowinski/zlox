@@ -27,6 +27,11 @@ fn disassembleInstruction(self: ch.Instruction, chunk: *ch.Chunk) void {
             printValue(chunk.constants.items[index]);
             std.debug.print("'\n", .{});
         },
+        .long_con => |index| {
+            std.debug.print("LONG_CONSTANT   {d:0>4} '", .{index});
+            printValue(chunk.constants.items[index]);
+            std.debug.print("'\n", .{});
+        }
     }
 }
 
