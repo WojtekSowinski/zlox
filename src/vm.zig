@@ -42,8 +42,7 @@ pub const VM = struct {
                     value.print(self.stack.pop());
                     return .ok;
                 },
-                .negate => self.stack.push(-self.stack.pop()),
-                .con => |index| {
+                .constant => |index| {
                     const constant: Value = self.readConstant(index);
                     self.stack.push(constant);
                 },
@@ -51,12 +50,23 @@ pub const VM = struct {
                     const constant: Value = self.readConstant(index);
                     self.stack.push(constant);
                 },
+                .negate => self.stack.push(-self.stack.pop()),
+                .add => self.runBinaryOp(add),
+                .subtract => self.runBinaryOp(subtract),
+                .multiply => self.runBinaryOp(multiply),
+                .divide => self.runBinaryOp(divide),
             }
         }
     }
 
     inline fn readConstant(self: Self, index: usize) Value {
         return self.chunk.constants.items[index];
+    }
+
+    inline fn runBinaryOp(self: *Self, op: fn (Value, Value) callconv(.Inline) Value) void {
+        const right = self.stack.pop();
+        const left = self.stack.pop();
+        self.stack.push(op(left, right));
     }
 
     inline fn readByte(self: *Self) u8 {
@@ -69,3 +79,19 @@ pub const VM = struct {
         self.stack.deinit();
     }
 };
+
+inline fn add(x: Value, y: Value) Value {
+    return x + y;
+}
+
+inline fn subtract(x: Value, y: Value) Value {
+    return x + y;
+}
+
+inline fn multiply(x: Value, y: Value) Value {
+    return x + y;
+}
+
+inline fn divide(x: Value, y: Value) Value {
+    return x + y;
+}
