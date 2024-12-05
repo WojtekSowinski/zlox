@@ -40,6 +40,3 @@ pub fn Stack(T: type) type {
         }
     };
 }
-
-// NOTE: [*]T allows pointer arithmetic and slicing. *T does not.
-// Use [*]T for top, bound and in printStack!!!

@@ -23,6 +23,7 @@ pub fn disassembleChunk(chunk: bytecode.Chunk, name: []const u8) void {
 pub fn disassembleInstruction(instruction: bytecode.Instruction, chunk: bytecode.Chunk) void {
     switch (instruction) {
         .ret => std.debug.print("RETURN\n", .{}),
+        .negate => std.debug.print("NEGATE\n", .{}),
         .con => |index| {
             std.debug.print("CONSTANT        {d:0>4} '", .{index});
             value.print(chunk.constants.items[index]);
