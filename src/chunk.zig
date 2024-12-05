@@ -14,12 +14,29 @@ pub const Instruction = union(OpCode) {
     con: u8,
     long_con: u24,
 
+    const Self = @This();
+
     pub fn size(self: Instruction) usize {
         return switch (self) {
             .ret => 1,
             .con => 2,
             .long_con => 4,
         };
+    }
+
+    pub fn readFrom(ptr: [*]const u8) Self {
+        const opcode: OpCode = @enumFromInt(ptr[0]);
+        switch (opcode) {
+            .ret => return .ret,
+            .con => {
+                const valIndex = ptr[1];
+                return .{ .con = valIndex };
+            },
+            .long_con => {
+                const valIndex = std.mem.bytesToValue(u24, ptr[1..4]);
+                return .{ .long_con = valIndex };
+            },
+        }
     }
 };
 
@@ -52,19 +69,8 @@ pub const Chunk = struct {
         self.lines.deinit();
     }
 
-    pub fn readInstruction(self: Self, index: usize) Instruction {
-        const opcode: OpCode = @enumFromInt(self.code.items[index]);
-        switch (opcode) {
-            .ret => return .ret,
-            .con => {
-                const valIndex = self.code.items[index + 1];
-                return .{ .con = valIndex };
-            },
-            .long_con => {
-                const valIndex = std.mem.bytesToValue(u24, self.code.items[index + 1 .. index + 4]);
-                return .{ .long_con = valIndex };
-            },
-        }
+    pub inline fn readInstruction(self: Self, index: usize) Instruction {
+        return Instruction.readFrom(@ptrFromInt(@intFromPtr(self.code.items.ptr) + index));
     }
 
     pub fn writeInstruction(
