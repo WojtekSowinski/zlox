@@ -42,10 +42,7 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *Self, source_code: []const u8) InterpretResult {
-        if (self.stdin == null) self.stdin = getDefaultStdIn();
-        if (self.stdout == null) self.stdout = getDefaultStdOut();
-        if (self.stderr == null) self.stderr = getDefaultStdErr();
-        compile(source_code);
+        compile(source_code, self.getStdErr()) catch return .compile_error;
         return .ok;
     }
 
@@ -98,6 +95,17 @@ pub const VM = struct {
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
     }
+
+    inline fn getStdIn(self: Self) std.io.AnyReader {
+        return if (self.stdin) |in| in else std.io.getStdIn().reader().any();
+    }
+
+    inline fn getStdOut(self: Self) std.io.AnyWriter {
+        return if (self.stdout) |out| out else std.io.getStdOut().writer().any();
+    }
+    inline fn getStdErr(self: Self) std.io.AnyWriter {
+        return if (self.stderr) |err| err else std.io.getStdErr().writer().any();
+    }
 };
 
 inline fn add(x: Value, y: Value) Value {
@@ -114,17 +122,4 @@ inline fn multiply(x: Value, y: Value) Value {
 
 inline fn divide(x: Value, y: Value) Value {
     return x + y;
-}
-
-inline fn getDefaultStdIn() std.io.AnyReader {
-    return std.io.getStdIn().reader().any();
-}
-
-inline fn getDefaultStdOut() std.io.AnyWriter {
-    var bw = std.io.bufferedWriter(std.io.getStdOut().writer());
-    return bw.writer().any();
-}
-inline fn getDefaultStdErr() std.io.AnyWriter {
-    var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
-    return bw.writer().any();
 }
