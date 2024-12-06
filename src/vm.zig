@@ -1,5 +1,5 @@
 const std = @import("std");
-const bytecode = @import("chunk.zig");
+const bytecode = @import("bytecode.zig");
 const Chunk = bytecode.Chunk;
 const Instruction = bytecode.Instruction;
 const value = @import("value.zig");
@@ -7,6 +7,7 @@ const Value = value.Value;
 const config = @import("build_config");
 const debug = @import("debug.zig");
 const Stack = @import("stack.zig").Stack;
+const compile = @import("compiler.zig").compile;
 
 pub const InterpretResult = enum {
     ok,
@@ -18,18 +19,37 @@ pub const VM = struct {
     chunk: *Chunk,
     ip: [*]u8,
     stack: Stack(Value),
+    stdin: ?std.io.AnyReader,
+    stdout: ?std.io.AnyWriter,
+    stderr: ?std.io.AnyWriter,
 
     const Self = @This();
 
-    pub fn init(chunk: *Chunk, allocator: std.mem.Allocator) !Self {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        stdin: ?std.io.AnyReader,
+        stdout: ?std.io.AnyWriter,
+        stderr: ?std.io.AnyWriter,
+    ) !Self {
         return Self{
-            .chunk = chunk,
-            .ip = chunk.code.items.ptr,
             .stack = try Stack(Value).init(allocator, 256),
+            .stdin = stdin,
+            .stdout = stdout,
+            .stderr = stderr,
+            .chunk = undefined,
+            .ip = undefined,
         };
     }
 
-    pub fn run(self: *Self) InterpretResult {
+    pub fn interpret(self: *Self, source_code: []const u8) InterpretResult {
+        if (self.stdin == null) self.stdin = getDefaultStdIn();
+        if (self.stdout == null) self.stdout = getDefaultStdOut();
+        if (self.stderr == null) self.stderr = getDefaultStdErr();
+        compile(source_code);
+        return .ok;
+    }
+
+    fn run(self: *Self) InterpretResult {
         while (true) {
             const instruction = Instruction.readFrom(self.ip);
             if (config.trace_execution) {
@@ -94,4 +114,17 @@ inline fn multiply(x: Value, y: Value) Value {
 
 inline fn divide(x: Value, y: Value) Value {
     return x + y;
+}
+
+inline fn getDefaultStdIn() std.io.AnyReader {
+    return std.io.getStdIn().reader().any();
+}
+
+inline fn getDefaultStdOut() std.io.AnyWriter {
+    var bw = std.io.bufferedWriter(std.io.getStdOut().writer());
+    return bw.writer().any();
+}
+inline fn getDefaultStdErr() std.io.AnyWriter {
+    var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
+    return bw.writer().any();
 }
