@@ -7,7 +7,7 @@ const Value = value.Value;
 const config = @import("build_config");
 const debug = @import("debug.zig");
 const Stack = @import("stack.zig").Stack;
-const compile = @import("compiler.zig").compile;
+const Compiler = @import("compiler.zig");
 const AnyReader = std.io.AnyReader;
 const AnyWriter = std.io.AnyWriter;
 
@@ -49,8 +49,13 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *Self, source_code: []const u8) InterpretResult {
-        compile(source_code, self.error_writer) catch return .compile_error;
-        return .ok;
+        var chunk = Chunk.init(self.stack.allcator) catch return .compile_error;
+        defer chunk.deinit();
+        var compiler = Compiler.init(&chunk, self.error_writer);
+        compiler.compile(source_code) catch return .compile_error;
+        self.chunk = &chunk;
+        self.ip = chunk.code.items.ptr;
+        return self.run();
     }
 
     fn run(self: *Self) InterpretResult {
