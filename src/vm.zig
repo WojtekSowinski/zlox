@@ -8,8 +8,21 @@ const config = @import("build_config");
 const debug = @import("debug.zig");
 const Stack = @import("stack.zig").Stack;
 const compile = @import("compiler.zig").compile;
+const AnyReader = std.io.AnyReader;
+const AnyWriter = std.io.AnyWriter;
 
 const null_writer = std.io.null_writer.any();
+
+fn emptyRead(context: *const anyopaque, buffer: []u8) !usize {
+    _ = context;
+    _ = buffer;
+    return 0;
+}
+
+const empty_reader = AnyReader{
+    .context = undefined,
+    .readFn = emptyRead,
+};
 
 pub const InterpretResult = enum {
     ok,
@@ -21,9 +34,9 @@ pub const VM = struct {
     chunk: *Chunk = undefined,
     ip: [*]u8 = undefined,
     stack: Stack(Value),
-    stdin: std.io.AnyReader = undefined, // TODO: implement an 'empty' default reader
-    stdout: std.io.AnyWriter = null_writer,
-    stderr: std.io.AnyWriter = null_writer,
+    input_reader: AnyReader = empty_reader,
+    output_writer: AnyWriter = null_writer,
+    error_writer: AnyWriter = null_writer,
 
     const Self = @This();
 
@@ -36,7 +49,7 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *Self, source_code: []const u8) InterpretResult {
-        compile(source_code, self.stderr) catch return .compile_error;
+        compile(source_code, self.error_writer) catch return .compile_error;
         return .ok;
     }
 

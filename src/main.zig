@@ -21,9 +21,9 @@ pub fn main() !void {
     const stdin = in_bw.reader();
 
     var mainVM = try vm.VM.init(allocator);
-    mainVM.stdin = stdin.any();
-    mainVM.stdout = stdout.any();
-    mainVM.stderr = stderr.any();
+    mainVM.input_reader = stdin.any();
+    mainVM.output_writer = stdout.any();
+    mainVM.error_writer = stderr.any();
     defer mainVM.deinit();
 
     const args = try std.process.argsAlloc(allocator);
@@ -50,8 +50,7 @@ pub fn main() !void {
         if (result == .compile_error) std.process.exit(65);
         if (result == .runtime_error) std.process.exit(70);
     } else {
-        try stderr.writeAll("Usage: zlox [path]\n");
-        try err_bw.flush();
+        try stderr_file.writeAll("Usage: zlox [path]\n");
         std.process.exit(64);
     }
 }
