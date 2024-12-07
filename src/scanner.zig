@@ -26,9 +26,17 @@ pub const Scanner = struct {
         if (isAlpha(c)) return self.identifier();
         if (isDigit(c)) return self.number();
         switch (c) {
-            '(', ')', '{', '}', ';', ',', '.', '-', '+', '/', '*' => {
-                return self.makeToken(@enumFromInt(c));
-            },
+            '(' => return self.makeToken(.left_paren),
+            ')' => return self.makeToken(.right_paren),
+            '{' => return self.makeToken(.left_brace),
+            '}' => return self.makeToken(.right_brace),
+            ';' => return self.makeToken(.semicolon),
+            ',' => return self.makeToken(.comma),
+            '.' => return self.makeToken(.dot),
+            '-' => return self.makeToken(.minus),
+            '+' => return self.makeToken(.plus),
+            '/' => return self.makeToken(.slash),
+            '*' => return self.makeToken(.star),
             '!' => {
                 const token_type: TokenType = if (self.match('=')) .bang_equal else .bang;
                 return self.makeToken(token_type);
@@ -48,9 +56,7 @@ pub const Scanner = struct {
             '"' => {
                 return self.string();
             },
-            else => {
-                return self.errorToken("Unexpected character.");
-            },
+            else => return self.errorToken("Unexpected character."),
         }
     }
 
@@ -140,19 +146,19 @@ pub const Scanner = struct {
 };
 
 pub const TokenType = enum(u8) {
-    left_paren = '(',
-    right_paren = ')',
-    left_brace = '{',
-    right_brace = '}',
-    comma = ',',
-    dot = '.',
-    minus = '-',
-    plus = '+',
-    semicolon = ';',
-    slash = '/',
-    star = '*',
+    left_paren,
+    right_paren,
+    left_brace,
+    right_brace,
+    comma,
+    dot,
+    minus,
+    plus,
+    semicolon,
+    slash,
+    star,
 
-    bang = 0,
+    bang,
     bang_equal,
     equal,
     equal_equal,

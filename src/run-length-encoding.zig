@@ -41,7 +41,7 @@ pub fn RunLengthArray(T: type) type {
             self.count += 1;
         }
 
-        pub fn get(self: *Self, index: usize) !T {
+        pub fn get(self: Self, index: usize) !T {
             var run_total: usize = 0;
             for (0..self.count) |i| {
                 run_total += self.run_lengths[i];
