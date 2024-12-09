@@ -110,7 +110,7 @@ pub const Scanner = struct {
                 },
                 '/' => if (self.peekNext() == '/') {
                     while (self.peek() != '\n' and !self.isAtEnd()) _ = self.advance();
-                },
+                } else return,
                 else => return,
             }
         }
