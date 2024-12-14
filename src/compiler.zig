@@ -103,6 +103,7 @@ pub fn compile(self: *Self, source_code: []const u8) !void {
     try self.expression();
     try self.consume(.eof, "Expected end of expression.");
     try self.endCompilation();
+    if (self.parser.had_error) return error.CompilerError;
 }
 
 fn advance(self: *Self) !void {

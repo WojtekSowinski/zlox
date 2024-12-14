@@ -27,12 +27,6 @@ const empty_reader = AnyReader{
     .readFn = emptyRead,
 };
 
-pub const InterpretResult = enum {
-    ok,
-    compile_error,
-    runtime_error,
-};
-
 pub const VM = struct {
     chunk: *Chunk = undefined,
     ip: [*]u8 = undefined,
@@ -55,17 +49,17 @@ pub const VM = struct {
         return vm;
     }
 
-    pub fn interpret(self: *Self, source_code: []const u8) InterpretResult {
-        var chunk = Chunk.init(self.gc.allocator()) catch return .compile_error;
+    pub fn interpret(self: *Self, source_code: []const u8) !void {
+        var chunk = try Chunk.init(self.gc.allocator());
         defer chunk.deinit();
         var compiler = Compiler.init(&chunk, self.error_writer, &self.gc);
-        compiler.compile(source_code) catch return .compile_error;
+        try compiler.compile(source_code);
         self.chunk = &chunk;
         self.ip = chunk.code.items.ptr;
-        return self.run();
+        try self.run();
     }
 
-    fn run(self: *Self) InterpretResult {
+    fn run(self: *Self) !void {
         while (true) {
             const instruction = Instruction.readFrom(self.ip);
             if (config.trace_execution) {
@@ -75,25 +69,28 @@ pub const VM = struct {
             self.ip += instruction.size();
             switch (instruction) {
                 .ret => {
-                    value.print(self.stack.pop());
+                    self.stack.pop().print();
                     std.debug.print("\n", .{});
-                    return .ok;
+                    return;
                 },
-                .true => self.stack.push(.{ .boolean = true }),
-                .false => self.stack.push(.{ .boolean = false }),
-                .nil => self.stack.push(.nil),
+                .true => try self.stack.push(.{ .boolean = true }),
+                .false => try self.stack.push(.{ .boolean = false }),
+                .nil => try self.stack.push(.nil),
                 .constant => |index| {
                     const constant: Value = self.readConstant(index);
-                    self.stack.push(constant);
+                    try self.stack.push(constant);
                 },
                 .long_con => |index| {
                     const constant: Value = self.readConstant(index);
-                    self.stack.push(constant);
+                    try self.stack.push(constant);
                 },
                 .negate => {
                     switch (self.stack.peek(0)) {
                         .number => |n| self.stack.swap(.{ .number = -n }),
-                        else => self.runtimeError("Operand must be a number", .{}) catch return .runtime_error,
+                        else => {
+                            try self.reportRuntimeError("Operand must be a number", .{});
+                            return error.TypeError;
+                        },
                     }
                 },
                 .not => self.stack.swap(.{ .boolean = self.stack.peek(0).isFalsey() }),
@@ -105,15 +102,16 @@ pub const VM = struct {
                         self.stack.swap(.{ .number = left.number + right.number });
                     } else if (left.isString() and right.isString()) {
                         _ = self.stack.pop();
-                        const newString = self.concatenate(left, right) catch return .runtime_error;
+                        const newString = try self.concatenate(left, right);
                         self.stack.swap(newString);
                     } else {
-                        self.runtimeError("Operands must be numbers or strings.", .{}) catch return .runtime_error;
+                        try self.reportRuntimeError("Operands must be numbers or strings.", .{});
+                        return error.TypeError;
                     }
                 },
-                .subtract => self.runBinaryOp(.number, subtract) catch return .runtime_error,
-                .multiply => self.runBinaryOp(.number, multiply) catch return .runtime_error,
-                .divide => self.runBinaryOp(.number, divide) catch return .runtime_error,
+                .subtract => try self.runBinaryOp(.number, subtract),
+                .multiply => try self.runBinaryOp(.number, multiply),
+                .divide => try self.runBinaryOp(.number, divide),
                 .equal => {
                     const right = self.stack.pop();
                     const left = self.stack.peek(0);
@@ -124,10 +122,10 @@ pub const VM = struct {
                     const left = self.stack.peek(0);
                     self.stack.swap(.{ .boolean = !left.equals(right) });
                 },
-                .less_than => self.runBinaryOp(.boolean, less) catch return .runtime_error,
-                .greater_than => self.runBinaryOp(.boolean, greater) catch return .runtime_error,
-                .less_or_equal => self.runBinaryOp(.boolean, less_eq) catch return .runtime_error,
-                .greater_or_equal => self.runBinaryOp(.boolean, greater_eq) catch return .runtime_error,
+                .less_than => try self.runBinaryOp(.boolean, less),
+                .greater_than => try self.runBinaryOp(.boolean, greater),
+                .less_or_equal => try self.runBinaryOp(.boolean, less_eq),
+                .greater_or_equal => try self.runBinaryOp(.boolean, greater_eq),
             }
         }
     }
@@ -163,7 +161,8 @@ pub const VM = struct {
                 op(left.number, right.number),
             ));
         } else {
-            try self.runtimeError("Operands must be numbers.", .{});
+            try self.reportRuntimeError("Operands must be numbers.", .{});
+            return error.TypeError;
         }
     }
 
@@ -178,16 +177,12 @@ pub const VM = struct {
         self.gc.deleteObjects();
     }
 
-    fn runtimeError(self: *Self, comptime fmt: []const u8, args: anytype) !void {
+    fn reportRuntimeError(self: *Self, comptime fmt: []const u8, args: anytype) !void {
         try std.fmt.format(self.error_writer, fmt, args);
         const instruction_index = @intFromPtr(self.ip) - @intFromPtr(self.chunk.code.items.ptr) - 1;
         const line = try self.chunk.lines.get(instruction_index);
         try std.fmt.format(self.error_writer, "\n[line {d}] in script\n", .{line});
-        self.resetStack();
-    }
-
-    inline fn resetStack(self: *Self) void {
-        self.stack.top = self.stack.items.ptr;
+        self.stack.clear();
     }
 };
 

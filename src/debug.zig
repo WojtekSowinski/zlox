@@ -1,6 +1,6 @@
 const std = @import("std");
 const bytecode = @import("bytecode.zig");
-const value = @import("value.zig");
+const Value = @import("value.zig").Value;
 const VM = @import("vm.zig").VM;
 
 pub fn disassembleChunk(chunk: bytecode.Chunk, name: []const u8) void {
@@ -24,12 +24,12 @@ pub fn disassembleInstruction(instruction: bytecode.Instruction, chunk: bytecode
     switch (instruction) {
         .constant => |index| {
             std.debug.print("CONSTANT        {d:0>4} '", .{index});
-            value.print(chunk.constants.items[index]);
+            chunk.constants.items[index].print();
             std.debug.print("'\n", .{});
         },
         .long_con => |index| {
             std.debug.print("LONG_CONSTANT   {d:0>4} '", .{index});
-            value.print(chunk.constants.items[index]);
+            chunk.constants.items[index].print();
             std.debug.print("'\n", .{});
         },
         .ret => std.debug.print("RETURN\n", .{}),
@@ -50,10 +50,10 @@ fn toUpper(comptime str: []const u8) [str.len]u8 {
 
 pub fn printStack(vm: VM) void {
     std.debug.print(" " ** 10, .{});
-    var ptr: [*]value.Value = vm.stack.items.ptr;
+    var ptr: [*]Value = vm.stack.items.ptr;
     while (ptr != vm.stack.top) : (ptr += 1) {
         std.debug.print("[ ", .{});
-        value.print(ptr[0]);
+        ptr[0].print();
         std.debug.print(" ]", .{});
     }
     std.debug.print("\n", .{});

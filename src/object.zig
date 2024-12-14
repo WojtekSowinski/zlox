@@ -17,6 +17,14 @@ pub const Obj = struct {
     pub inline fn isString(self: Self) bool {
         return self.is(.const_string) or self.is(.owned_string);
     }
+
+    pub inline fn print(self: *Self) void {
+        switch (self.type) {
+            .const_string,
+            .owned_string,
+            => std.debug.print("{s}", .{self.as(String).text}),
+        }
+    }
 };
 
 pub const ObjectType = enum {

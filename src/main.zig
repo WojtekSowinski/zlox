@@ -39,7 +39,7 @@ pub fn main() !void {
                 try stdout_file.writeByte('\n');
                 break;
             };
-            _ = mainVM.interpret(line);
+            _ = mainVM.interpret(line) catch {};
         }
     } else if (args.len == 2) {
         const source = try readFile(args[1], allocator);
@@ -47,8 +47,7 @@ pub fn main() !void {
         allocator.free(source);
         try out_bw.flush();
         try err_bw.flush();
-        if (result == .compile_error) std.process.exit(65);
-        if (result == .runtime_error) std.process.exit(70);
+        if (result) |_| {} else |_| std.process.exit(65);
     } else {
         try stderr_file.writeAll("Usage: zlox [path]\n");
         std.process.exit(64);
