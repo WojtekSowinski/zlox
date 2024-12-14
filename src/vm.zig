@@ -140,22 +140,8 @@ pub const VM = struct {
         const str1 = left.object.as(object.String);
         const str2 = right.object.as(object.String);
         const new_text = try self.gc.allocator().alloc(u8, str1.text.len + str2.text.len);
-        // Copy 1st string, free the original slice if it's owned by str1.
         @memcpy(new_text[0..str1.text.len], str1.text);
-        if (str1.obj.is(.owned_string)) {
-            const length = str1.text.len;
-            self.gc.allocator().free(str1.text);
-            str1.obj.type = .const_string;
-            str1.text = new_text[0..length];
-        }
-        // Copy 2st string, free the original slice if it's owned by str2.
         @memcpy(new_text[str1.text.len..], str2.text);
-        if (str2.obj.is(.owned_string)) {
-            self.gc.allocator().free(str2.text);
-            str2.obj.type = .const_string;
-            str1.text = new_text[str1.text.len..];
-        }
-        // Wrap concatenated string in a new object.
         const obj = try self.gc.makeObject(.owned_string);
         const new_str = obj.as(object.String);
         new_str.text = new_text;
