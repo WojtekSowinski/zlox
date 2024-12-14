@@ -4,6 +4,9 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const options = b.addOptions();
+    options.addOption(bool, "trace_execution", b.release_mode == .off);
+
     const fmt_step = b.step("fmt", "Run formatting checks");
 
     const fmt = b.addFmt(.{
@@ -23,6 +26,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+
+    exe.root_module.addOptions("build_config", options);
 
     b.installArtifact(exe);
 

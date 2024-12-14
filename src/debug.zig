@@ -1,8 +1,8 @@
 const std = @import("std");
-const ch = @import("chunk.zig");
-const val = @import("value.zig");
+const bytecode = @import("chunk.zig");
+const value = @import("value.zig");
 
-pub fn disassembleChunk(chunk: *ch.Chunk, name: []const u8) void {
+pub fn disassembleChunk(chunk: *bytecode.Chunk, name: []const u8) void {
     std.debug.print("== {s} ==\n", .{name});
     var offset: usize = 0;
     while (offset < chunk.length()) {
@@ -19,22 +19,18 @@ pub fn disassembleChunk(chunk: *ch.Chunk, name: []const u8) void {
     }
 }
 
-fn disassembleInstruction(self: ch.Instruction, chunk: *ch.Chunk) void {
+pub fn disassembleInstruction(self: bytecode.Instruction, chunk: *bytecode.Chunk) void {
     switch (self) {
         .ret => std.debug.print("RETURN\n", .{}),
         .con => |index| {
             std.debug.print("CONSTANT        {d:0>4} '", .{index});
-            printValue(chunk.constants.items[index]);
+            value.print(chunk.constants.items[index]);
             std.debug.print("'\n", .{});
         },
         .long_con => |index| {
             std.debug.print("LONG_CONSTANT   {d:0>4} '", .{index});
-            printValue(chunk.constants.items[index]);
+            value.print(chunk.constants.items[index]);
             std.debug.print("'\n", .{});
         },
     }
-}
-
-fn printValue(value: val.Value) void {
-    std.debug.print("{d}", .{value});
 }
