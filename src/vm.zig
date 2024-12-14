@@ -11,6 +11,7 @@ const Stack = @import("stack.zig").Stack;
 const Compiler = @import("compiler.zig");
 const AnyReader = std.io.AnyReader;
 const AnyWriter = std.io.AnyWriter;
+const LoxGarbageCollector = @import("gc.zig");
 
 const null_writer = std.io.null_writer.any();
 
@@ -38,19 +39,23 @@ pub const VM = struct {
     input_reader: AnyReader = empty_reader,
     output_writer: AnyWriter = null_writer,
     error_writer: AnyWriter = null_writer,
+    gc: LoxGarbageCollector,
 
     const Self = @This();
 
-    pub fn init(
+    pub inline fn init(
+        // INFO: init() is inlined to prevent vm.gc.allocator().ptr from
+        // being invalidated when init() returns.
         allocator: std.mem.Allocator,
     ) !Self {
-        return Self{
-            .stack = try Stack(Value).init(allocator, 256),
-        };
+        var vm = Self{ .gc = undefined, .stack = undefined };
+        vm.gc = LoxGarbageCollector.init(allocator);
+        vm.stack = try Stack(Value).init(vm.gc.allocator(), 256);
+        return vm;
     }
 
     pub fn interpret(self: *Self, source_code: []const u8) InterpretResult {
-        var chunk = Chunk.init(self.stack.allcator) catch return .compile_error;
+        var chunk = Chunk.init(self.gc.allocator()) catch return .compile_error;
         defer chunk.deinit();
         var compiler = Compiler.init(&chunk, self.error_writer);
         compiler.compile(source_code) catch return .compile_error;

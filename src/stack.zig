@@ -5,22 +5,22 @@ pub fn Stack(T: type) type {
         items: []T,
         top: [*]T,
         bound: [*]T,
-        allcator: std.mem.Allocator,
+        allocator: std.mem.Allocator,
 
         const Self = @This();
 
-        pub fn init(allcator: std.mem.Allocator, capacity: usize) !Self {
-            const items = try allcator.alloc(T, capacity);
+        pub fn init(allocator: std.mem.Allocator, capacity: usize) !Self {
+            const items = try allocator.alloc(T, capacity);
             return .{
                 .items = items,
                 .top = items.ptr,
                 .bound = items.ptr + items.len,
-                .allcator = allcator,
+                .allocator = allocator,
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.allcator.free(self.items);
+            self.allocator.free(self.items);
         }
 
         pub fn peek(self: Self, distance: usize) T {
@@ -39,7 +39,7 @@ pub fn Stack(T: type) type {
         pub fn push(self: *Self, item: T) void {
             if (self.top == self.bound) {
                 const offset = self.items.len;
-                self.items = self.allcator.realloc(self.items, self.items.len * 2) catch unreachable;
+                self.items = self.allocator.realloc(self.items, self.items.len * 2) catch unreachable;
                 self.bound = self.items.ptr + self.items.len;
                 self.top = self.items.ptr + offset;
             }
