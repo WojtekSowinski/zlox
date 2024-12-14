@@ -4,6 +4,7 @@ const Chunk = bytecode.Chunk;
 const Instruction = bytecode.Instruction;
 const value = @import("value.zig");
 const Value = value.Value;
+const LoxType = value.LoxType;
 const config = @import("build_config");
 const debug = @import("debug.zig");
 const Stack = @import("stack.zig").Stack;
@@ -72,6 +73,9 @@ pub const VM = struct {
                     std.debug.print("\n", .{});
                     return .ok;
                 },
+                .true => self.stack.push(.{ .boolean = true }),
+                .false => self.stack.push(.{ .boolean = false }),
+                .nil => self.stack.push(.nil),
                 .constant => |index| {
                     const constant: Value = self.readConstant(index);
                     self.stack.push(constant);
@@ -80,11 +84,31 @@ pub const VM = struct {
                     const constant: Value = self.readConstant(index);
                     self.stack.push(constant);
                 },
-                .negate => self.stack.push(-self.stack.pop()),
-                .add => self.runBinaryOp(add),
-                .subtract => self.runBinaryOp(subtract),
-                .multiply => self.runBinaryOp(multiply),
-                .divide => self.runBinaryOp(divide),
+                .negate => {
+                    switch (self.stack.peek(0)) {
+                        .number => |n| self.stack.swap(.{ .number = -n }),
+                        else => self.runtimeError("Operand must be a number", .{}) catch return .runtime_error,
+                    }
+                },
+                .not => self.stack.swap(.{ .boolean = self.stack.peek(0).isFalsey() }),
+                .add => self.runBinaryOp(.number, add) catch return .runtime_error,
+                .subtract => self.runBinaryOp(.number, subtract) catch return .runtime_error,
+                .multiply => self.runBinaryOp(.number, multiply) catch return .runtime_error,
+                .divide => self.runBinaryOp(.number, divide) catch return .runtime_error,
+                .equal => {
+                    const right = self.stack.pop();
+                    const left = self.stack.peek(0);
+                    self.stack.swap(.{ .boolean = left.equals(right) });
+                },
+                .not_equal => {
+                    const right = self.stack.pop();
+                    const left = self.stack.peek(0);
+                    self.stack.swap(.{ .boolean = !left.equals(right) });
+                },
+                .less_than => self.runBinaryOp(.boolean, less) catch return .runtime_error,
+                .greater_than => self.runBinaryOp(.boolean, greater) catch return .runtime_error,
+                .less_or_equal => self.runBinaryOp(.boolean, less_eq) catch return .runtime_error,
+                .greater_or_equal => self.runBinaryOp(.boolean, greater_eq) catch return .runtime_error,
             }
         }
     }
@@ -93,10 +117,19 @@ pub const VM = struct {
         return self.chunk.constants.items[index];
     }
 
-    inline fn runBinaryOp(self: *Self, op: fn (Value, Value) callconv(.Inline) Value) void {
-        const right = self.stack.pop();
-        const left = self.stack.pop();
-        self.stack.push(op(left, right));
+    inline fn runBinaryOp(self: *Self, comptime return_type: LoxType, op: fn (f64, f64) callconv(.Inline) std.meta.TagPayload(Value, return_type)) !void {
+        const right = self.stack.peek(0);
+        const left = self.stack.peek(1);
+        if (left.isNumber() and right.isNumber()) {
+            _ = self.stack.pop();
+            self.stack.swap(@unionInit(
+                Value,
+                std.enums.tagName(LoxType, return_type).?,
+                op(left.number, right.number),
+            ));
+        } else {
+            try self.runtimeError("Operands must be numbers.", .{});
+        }
     }
 
     inline fn readByte(self: *Self) u8 {
@@ -108,20 +141,48 @@ pub const VM = struct {
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
     }
+
+    fn runtimeError(self: *Self, comptime fmt: []const u8, args: anytype) !void {
+        try std.fmt.format(self.error_writer, fmt, args);
+        const instruction_index = @intFromPtr(self.ip) - @intFromPtr(self.chunk.code.items.ptr) - 1;
+        const line = try self.chunk.lines.get(instruction_index);
+        try std.fmt.format(self.error_writer, "\n[line {d}] in script\n", .{line});
+        self.resetStack();
+    }
+
+    inline fn resetStack(self: *Self) void {
+        self.stack.top = self.stack.items.ptr;
+    }
 };
 
-inline fn add(x: Value, y: Value) Value {
+inline fn add(x: f64, y: f64) f64 {
     return x + y;
 }
 
-inline fn subtract(x: Value, y: Value) Value {
+inline fn subtract(x: f64, y: f64) f64 {
     return x - y;
 }
 
-inline fn multiply(x: Value, y: Value) Value {
+inline fn multiply(x: f64, y: f64) f64 {
     return x * y;
 }
 
-inline fn divide(x: Value, y: Value) Value {
+inline fn divide(x: f64, y: f64) f64 {
     return x / y;
+}
+
+inline fn less(x: f64, y: f64) bool {
+    return x < y;
+}
+
+inline fn greater(x: f64, y: f64) bool {
+    return x > y;
+}
+
+inline fn less_eq(x: f64, y: f64) bool {
+    return x <= y;
+}
+
+inline fn greater_eq(x: f64, y: f64) bool {
+    return x >= y;
 }

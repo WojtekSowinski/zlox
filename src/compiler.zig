@@ -55,6 +55,16 @@ inline fn getRule(token_type: TokenType) ParserRule {
                 .slash => .{ null, binary, .product },
                 .star => .{ null, binary, .product },
                 .number => .{ number, null, .none },
+                .kw_nil => .{ literal, null, .none },
+                .kw_true => .{ literal, null, .none },
+                .kw_false => .{ literal, null, .none },
+                .bang => .{ unary, null, .none },
+                .equal_equal => .{ null, binary, .equality },
+                .bang_equal => .{ null, binary, .equality },
+                .less => .{ null, binary, .comparison },
+                .greater => .{ null, binary, .comparison },
+                .less_equal => .{ null, binary, .comparison },
+                .greater_equal => .{ null, binary, .comparison },
                 else => .{ null, null, .none },
             };
             rules[@intFromEnum(token)] = .{
@@ -161,6 +171,7 @@ fn unary(self: *Self) !void {
 
     switch (operator.type) {
         .minus => try self.emitInstruction(.negate, operator.line),
+        .bang => try self.emitInstruction(.not, operator.line),
         else => unreachable,
     }
 }
@@ -174,14 +185,31 @@ fn binary(self: *Self) !void {
         .minus => .subtract,
         .star => .multiply,
         .slash => .divide,
+        .equal_equal => .equal,
+        .bang_equal => .not_equal,
+        .less => .less_than,
+        .greater => .greater_than,
+        .less_equal => .less_or_equal,
+        .greater_equal => .greater_or_equal,
         else => unreachable,
     };
     try self.emitInstruction(instruction, operator.line);
 }
 
+fn literal(self: *Self) !void {
+    const token = self.parser.previous;
+    const opcode: bytecode.Instruction = switch (token.type) {
+        .kw_nil => .nil,
+        .kw_true => .true,
+        .kw_false => .false,
+        else => unreachable,
+    };
+    try self.emitInstruction(opcode, token.line);
+}
+
 fn number(self: *Self) !void {
     const value = std.fmt.parseFloat(f64, self.parser.previous.lexeme) catch unreachable;
-    try self.emitConstant(value);
+    try self.emitConstant(.{ .number = value });
 }
 
 fn emitConstant(self: *Self, value: Value) !void {

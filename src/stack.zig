@@ -23,6 +23,14 @@ pub fn Stack(T: type) type {
             self.allcator.free(self.items);
         }
 
+        pub fn peek(self: Self, distance: usize) T {
+            return (self.top - distance - 1)[0];
+        }
+
+        pub fn swap(self: Self, item: T) void {
+            (self.top - 1)[0] = item;
+        }
+
         pub fn pop(self: *Self) T {
             self.top -= 1;
             return self.top[0];
