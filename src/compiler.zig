@@ -24,11 +24,11 @@ pub fn compile(source_code: []const u8, error_writer: std.io.AnyWriter) !void {
         });
 
         if (token.type == .scanning_error) {
-            std.fmt.format(
+            try std.fmt.format(
                 error_writer,
                 "Lexical error on line {d}: {s}\n",
                 .{ token.line, token.lexeme },
-            ) catch std.debug.print("WTF?!?!?!\n", .{});
+            );
         }
 
         if (token.type == .eof) break;

@@ -9,6 +9,8 @@ const debug = @import("debug.zig");
 const Stack = @import("stack.zig").Stack;
 const compile = @import("compiler.zig").compile;
 
+const null_writer = std.io.null_writer.any();
+
 pub const InterpretResult = enum {
     ok,
     compile_error,
@@ -16,33 +18,25 @@ pub const InterpretResult = enum {
 };
 
 pub const VM = struct {
-    chunk: *Chunk,
-    ip: [*]u8,
+    chunk: *Chunk = undefined,
+    ip: [*]u8 = undefined,
     stack: Stack(Value),
-    stdin: ?std.io.AnyReader,
-    stdout: ?std.io.AnyWriter,
-    stderr: ?std.io.AnyWriter,
+    stdin: std.io.AnyReader = undefined, // TODO: implement an 'empty' default reader
+    stdout: std.io.AnyWriter = null_writer,
+    stderr: std.io.AnyWriter = null_writer,
 
     const Self = @This();
 
     pub fn init(
         allocator: std.mem.Allocator,
-        stdin: ?std.io.AnyReader,
-        stdout: ?std.io.AnyWriter,
-        stderr: ?std.io.AnyWriter,
     ) !Self {
         return Self{
             .stack = try Stack(Value).init(allocator, 256),
-            .stdin = stdin,
-            .stdout = stdout,
-            .stderr = stderr,
-            .chunk = undefined,
-            .ip = undefined,
         };
     }
 
     pub fn interpret(self: *Self, source_code: []const u8) InterpretResult {
-        compile(source_code, self.getStdErr()) catch return .compile_error;
+        compile(source_code, self.stderr) catch return .compile_error;
         return .ok;
     }
 
@@ -94,17 +88,6 @@ pub const VM = struct {
 
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
-    }
-
-    inline fn getStdIn(self: Self) std.io.AnyReader {
-        return if (self.stdin) |in| in else std.io.getStdIn().reader().any();
-    }
-
-    inline fn getStdOut(self: Self) std.io.AnyWriter {
-        return if (self.stdout) |out| out else std.io.getStdOut().writer().any();
-    }
-    inline fn getStdErr(self: Self) std.io.AnyWriter {
-        return if (self.stderr) |err| err else std.io.getStdErr().writer().any();
     }
 };
 
