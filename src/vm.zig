@@ -33,18 +33,24 @@ pub const VM = struct {
         while (true) {
             const instruction = Instruction.readFrom(self.ip);
             if (config.trace_execution) {
-                debug.disassembleInstruction(instruction, self.chunk);
+                debug.printStack(self.*);
+                debug.disassembleInstruction(instruction, self.chunk.*);
             }
             self.ip += instruction.size();
             switch (instruction) {
-                .ret => return .ok,
+                .ret => {
+                    value.print(self.stack.pop());
+                    return .ok;
+                },
                 .con => |index| {
                     const constant: Value = self.readConstant(index);
+                    self.stack.push(constant);
                     value.print(constant);
                     std.debug.print("\n", .{});
                 },
                 .long_con => |index| {
                     const constant: Value = self.readConstant(index);
+                    self.stack.push(constant);
                     value.print(constant);
                     std.debug.print("\n", .{});
                 },
