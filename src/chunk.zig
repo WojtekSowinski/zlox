@@ -5,17 +5,20 @@ const RunLengthArray = @import("run-length-encoding.zig").RunLengthArray;
 pub const OpCode = enum(u8) {
     ret,
     con,
+    long_con,
 };
 
 pub const Instruction = union(OpCode) {
     ret: void,
     con: u8,
+    long_con: u24,
 
     pub fn size(self: Instruction) usize {
-        switch (self) {
-            .ret => return 1,
-            .con => return 2,
-        }
+        return switch (self) {
+            .ret => 1,
+            .con => 2,
+            .long_con => 4,
+        };
     }
 };
 
@@ -31,7 +34,7 @@ pub const Chunk = struct {
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) !Chunk {
-        const code = try CodeArray.initCapacity(allocator, 8); 
+        const code = try CodeArray.initCapacity(allocator, 8);
         errdefer code.deinit();
         const lines = try Lines.init(allocator);
         return Chunk{
@@ -48,13 +51,17 @@ pub const Chunk = struct {
         self.lines.deinit();
     }
 
-    pub fn readInstruction(self: *Self, index: usize) Instruction {
+    pub fn readInstruction(self: Self, index: usize) Instruction {
         const opcode: OpCode = @enumFromInt(self.code.items[index]);
         switch (opcode) {
             .ret => return .ret,
             .con => {
                 const valIndex = self.code.items[index + 1];
                 return .{ .con = valIndex };
+            },
+            .long_con => {
+                const valIndex = std.mem.bytesToValue(u24, self.code.items[index + 1 .. index + 4]);
+                return .{ .long_con = valIndex };
             },
         }
     }
@@ -71,6 +78,10 @@ pub const Chunk = struct {
                 try self.write(index);
                 errdefer self.pop();
             },
+            .long_con => |index| {
+                try self.writeMany(std.mem.toBytes(index)[0..3]);
+                errdefer for (0..3) |_| self.pop();
+            },
             else => {},
         }
         try self.lines.append(line, instruction.size());
@@ -78,6 +89,10 @@ pub const Chunk = struct {
 
     fn write(self: *Self, byte: u8) !void {
         try self.code.append(byte);
+    }
+
+    fn writeMany(self: *Self, bytes: []const u8) !void {
+        try self.code.appendSlice(bytes);
     }
 
     fn pop(self: *Self) void {
