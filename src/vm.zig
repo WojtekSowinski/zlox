@@ -57,7 +57,7 @@ pub const VM = struct {
     pub fn interpret(self: *Self, source_code: []const u8) InterpretResult {
         var chunk = Chunk.init(self.gc.allocator()) catch return .compile_error;
         defer chunk.deinit();
-        var compiler = Compiler.init(&chunk, self.error_writer);
+        var compiler = Compiler.init(&chunk, self.error_writer, &self.gc);
         compiler.compile(source_code) catch return .compile_error;
         self.chunk = &chunk;
         self.ip = chunk.code.items.ptr;
@@ -122,7 +122,11 @@ pub const VM = struct {
         return self.chunk.constants.items[index];
     }
 
-    inline fn runBinaryOp(self: *Self, comptime return_type: LoxType, op: fn (f64, f64) callconv(.Inline) std.meta.TagPayload(Value, return_type)) !void {
+    inline fn runBinaryOp(
+        self: *Self,
+        comptime return_type: LoxType,
+        op: fn (f64, f64) callconv(.Inline) std.meta.TagPayload(Value, return_type),
+    ) !void {
         const right = self.stack.peek(0);
         const left = self.stack.peek(1);
         if (left.isNumber() and right.isNumber()) {
@@ -145,6 +149,7 @@ pub const VM = struct {
 
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
+        self.gc.deleteObjects();
     }
 
     fn runtimeError(self: *Self, comptime fmt: []const u8, args: anytype) !void {

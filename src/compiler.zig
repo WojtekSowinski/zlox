@@ -6,11 +6,14 @@ const TokenType = scan.TokenType;
 const bytecode = @import("bytecode.zig");
 const Value = @import("value.zig").Value;
 const debug = @import("debug.zig");
+const GarbageCollector = @import("gc.zig");
+const object = @import("object.zig");
 
 error_writer: std.io.AnyWriter,
 compilingChunk: *bytecode.Chunk,
 tokens: Scanner,
 parser: Parser,
+gc: *GarbageCollector,
 
 const Parser = struct {
     previous: Token = undefined,
@@ -55,6 +58,7 @@ inline fn getRule(token_type: TokenType) ParserRule {
                 .slash => .{ null, binary, .product },
                 .star => .{ null, binary, .product },
                 .number => .{ number, null, .none },
+                .string => .{ string, null, .none },
                 .kw_nil => .{ literal, null, .none },
                 .kw_true => .{ literal, null, .none },
                 .kw_false => .{ literal, null, .none },
@@ -79,8 +83,13 @@ inline fn getRule(token_type: TokenType) ParserRule {
 
 const Self = @This();
 
-pub fn init(chunk: *bytecode.Chunk, error_writer: std.io.AnyWriter) Self {
+pub fn init(
+    chunk: *bytecode.Chunk,
+    error_writer: std.io.AnyWriter,
+    gc: *GarbageCollector,
+) Self {
     return Self{
+        .gc = gc,
         .error_writer = error_writer,
         .compilingChunk = chunk,
         .parser = Parser{},
@@ -205,6 +214,14 @@ fn literal(self: *Self) !void {
         else => unreachable,
     };
     try self.emitInstruction(opcode, token.line);
+}
+
+fn string(self: *Self) !void {
+    const lexeme = self.parser.previous.lexeme;
+    const text = lexeme[1 .. lexeme.len - 1];
+    const obj = try self.gc.makeObject(.const_string);
+    obj.as(object.String).text = text;
+    try self.emitConstant(.{ .object = obj });
 }
 
 fn number(self: *Self) !void {

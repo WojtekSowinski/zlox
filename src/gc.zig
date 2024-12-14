@@ -1,12 +1,55 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const object = @import("object.zig");
+const Obj = object.Obj;
+const ObjectType = object.ObjectType;
 
 base_allocator: Allocator,
+objects: ?*Obj,
 
 const Self = @This();
 
+pub fn makeObject(self: *Self, obj_type: ObjectType) !*Obj {
+    var obj: *Obj = undefined;
+    switch (obj_type) {
+        .const_string,
+        .owned_string,
+        => {
+            const str = try self.allocator().create(object.String);
+            obj = &(str.obj);
+        },
+    }
+    obj.type = obj_type;
+    obj.next = self.objects;
+    self.objects = obj;
+    return obj;
+}
+
+pub fn deleteObjects(self: *Self) void {
+    var objects = self.objects;
+    while (objects) |obj| {
+        objects = obj.next;
+        self.deleteObject(obj);
+    }
+    self.objects = null;
+}
+
+fn deleteObject(self: *Self, obj: *Obj) void {
+    switch (obj.type) {
+        .const_string => {
+            const str = obj.as(object.String);
+            self.allocator().destroy(str);
+        },
+        .owned_string => {
+            const str = obj.as(object.String);
+            self.allocator().free(str.text);
+            self.allocator().destroy(str);
+        },
+    }
+}
+
 pub fn init(base_allocator: Allocator) Self {
-    return Self{ .base_allocator = base_allocator };
+    return Self{ .base_allocator = base_allocator, .objects = null };
 }
 
 fn allocFn(ctx: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
