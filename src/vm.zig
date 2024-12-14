@@ -69,6 +69,7 @@ pub const VM = struct {
             switch (instruction) {
                 .ret => {
                     value.print(self.stack.pop());
+                    std.debug.print("\n", .{});
                     return .ok;
                 },
                 .constant => |index| {
@@ -114,13 +115,13 @@ inline fn add(x: Value, y: Value) Value {
 }
 
 inline fn subtract(x: Value, y: Value) Value {
-    return x + y;
+    return x - y;
 }
 
 inline fn multiply(x: Value, y: Value) Value {
-    return x + y;
+    return x * y;
 }
 
 inline fn divide(x: Value, y: Value) Value {
-    return x + y;
+    return x / y;
 }
