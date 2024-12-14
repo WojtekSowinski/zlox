@@ -10,8 +10,8 @@ pub const Obj = struct {
         return @fieldParentPtr("obj", self);
     }
 
-    inline fn is(self: Self, obj_type: ObjectType) bool {
-        return std.meta.activeTag(self) == obj_type;
+    pub inline fn is(self: Self, obj_type: ObjectType) bool {
+        return self.type == obj_type;
     }
 
     pub inline fn isString(self: Self) bool {

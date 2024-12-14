@@ -19,23 +19,27 @@ pub const Value = union(LoxType) {
 
     const Self = @This();
 
-    pub fn isNumber(self: Self) bool {
+    pub inline fn isNumber(self: Self) bool {
         return std.meta.activeTag(self) == .number;
     }
 
-    pub fn isBoolean(self: Self) bool {
+    pub inline fn isBoolean(self: Self) bool {
         return std.meta.activeTag(self) == .boolean;
     }
 
-    pub fn isObject(self: Self) bool {
+    pub inline fn isObject(self: Self) bool {
         return std.meta.activeTag(self) == .object;
     }
 
-    pub fn isFalsey(self: Self) bool {
+    pub inline fn isString(self: Self) bool {
+        return self.isObject() and self.object.isString();
+    }
+
+    pub inline fn isFalsey(self: Self) bool {
         return self == .nil or (self.isBoolean() and !self.boolean);
     }
 
-    pub fn equals(self: Self, other: Self) bool {
+    pub inline fn equals(self: Self, other: Self) bool {
         return std.meta.eql(self, other);
     }
 };

@@ -12,6 +12,7 @@ const Compiler = @import("compiler.zig");
 const AnyReader = std.io.AnyReader;
 const AnyWriter = std.io.AnyWriter;
 const LoxGarbageCollector = @import("gc.zig");
+const object = @import("object.zig");
 
 const null_writer = std.io.null_writer.any();
 
@@ -96,7 +97,20 @@ pub const VM = struct {
                     }
                 },
                 .not => self.stack.swap(.{ .boolean = self.stack.peek(0).isFalsey() }),
-                .add => self.runBinaryOp(.number, add) catch return .runtime_error,
+                .add => {
+                    const right = self.stack.peek(0);
+                    const left = self.stack.peek(1);
+                    if (left.isNumber() and right.isNumber()) {
+                        _ = self.stack.pop();
+                        self.stack.swap(.{ .number = left.number + right.number });
+                    } else if (left.isString() and right.isString()) {
+                        _ = self.stack.pop();
+                        const newString = self.concatenate(left, right) catch return .runtime_error;
+                        self.stack.swap(newString);
+                    } else {
+                        self.runtimeError("Operands must be numbers or strings.", .{}) catch return .runtime_error;
+                    }
+                },
                 .subtract => self.runBinaryOp(.number, subtract) catch return .runtime_error,
                 .multiply => self.runBinaryOp(.number, multiply) catch return .runtime_error,
                 .divide => self.runBinaryOp(.number, divide) catch return .runtime_error,
@@ -120,6 +134,32 @@ pub const VM = struct {
 
     inline fn readConstant(self: Self, index: usize) Value {
         return self.chunk.constants.items[index];
+    }
+
+    fn concatenate(self: *Self, left: Value, right: Value) !Value {
+        const str1 = left.object.as(object.String);
+        const str2 = right.object.as(object.String);
+        const new_text = try self.gc.allocator().alloc(u8, str1.text.len + str2.text.len);
+        // Copy 1st string, free the original slice if it's owned by str1.
+        @memcpy(new_text[0..str1.text.len], str1.text);
+        if (str1.obj.is(.owned_string)) {
+            const length = str1.text.len;
+            self.gc.allocator().free(str1.text);
+            str1.obj.type = .const_string;
+            str1.text = new_text[0..length];
+        }
+        // Copy 2st string, free the original slice if it's owned by str2.
+        @memcpy(new_text[str1.text.len..], str2.text);
+        if (str2.obj.is(.owned_string)) {
+            self.gc.allocator().free(str2.text);
+            str2.obj.type = .const_string;
+            str1.text = new_text[str1.text.len..];
+        }
+        // Wrap concatenated string in a new object.
+        const obj = try self.gc.makeObject(.owned_string);
+        const new_str = obj.as(object.String);
+        new_str.text = new_text;
+        return .{ .object = obj };
     }
 
     inline fn runBinaryOp(
