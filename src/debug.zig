@@ -22,9 +22,7 @@ pub fn disassembleChunk(chunk: bytecode.Chunk, name: []const u8) void {
 
 pub fn disassembleInstruction(instruction: bytecode.Instruction, chunk: bytecode.Chunk) void {
     switch (instruction) {
-        .ret => std.debug.print("RETURN\n", .{}),
-        .negate => std.debug.print("NEGATE\n", .{}),
-        .con => |index| {
+        .constant => |index| {
             std.debug.print("CONSTANT        {d:0>4} '", .{index});
             value.print(chunk.constants.items[index]);
             std.debug.print("'\n", .{});
@@ -34,7 +32,20 @@ pub fn disassembleInstruction(instruction: bytecode.Instruction, chunk: bytecode
             value.print(chunk.constants.items[index]);
             std.debug.print("'\n", .{});
         },
+        .ret => std.debug.print("RETURN\n", .{}),
+        inline else => |_, tag| {
+            const opName = comptime std.enums.tagName(bytecode.OpCode, tag).?;
+            std.debug.print(comptime (toUpper(opName) ++ "\n"), .{});
+        },
     }
+}
+
+fn toUpper(comptime str: []const u8) [str.len]u8 {
+    comptime var upper: [str.len]u8 = undefined;
+    for (str, 0..) |char, i| {
+        upper[i] = if ('a' <= char and char <= 'z') (char - 32) else char;
+    }
+    return upper;
 }
 
 pub fn printStack(vm: VM) void {

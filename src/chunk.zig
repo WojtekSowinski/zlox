@@ -5,40 +5,47 @@ const RunLengthArray = @import("run-length-encoding.zig").RunLengthArray;
 
 pub const OpCode = enum(u8) {
     ret,
-    con,
+    constant,
     long_con,
     negate,
+    add,
+    multiply,
+    subtract,
+    divide,
 };
 
 pub const Instruction = union(OpCode) {
-    ret: void,
-    con: u8,
+    ret,
+    constant: u8,
     long_con: u24,
-    negate: void,
+    negate,
+    add,
+    multiply,
+    subtract,
+    divide,
 
     const Self = @This();
 
     pub fn size(self: Instruction) usize {
         return switch (self) {
-            .ret, .negate => 1,
-            .con => 2,
+            .constant => 2,
             .long_con => 4,
+            else => 1,
         };
     }
 
     pub fn readFrom(ptr: [*]const u8) Self {
         const opcode: OpCode = @enumFromInt(ptr[0]);
         switch (opcode) {
-            .ret => return .ret,
-            .negate => return .negate,
-            .con => {
+            .constant => {
                 const valIndex = ptr[1];
-                return .{ .con = valIndex };
+                return .{ .constant = valIndex };
             },
             .long_con => {
                 const valIndex = std.mem.bytesToValue(u24, ptr[1..4]);
                 return .{ .long_con = valIndex };
             },
+            inline else => |tag| return std.enums.nameCast(Instruction, tag),
         }
     }
 };
@@ -84,7 +91,7 @@ pub const Chunk = struct {
         try self.write(@intFromEnum(instruction));
         errdefer self.pop();
         switch (instruction) {
-            .con => |index| {
+            .constant => |index| {
                 try self.write(index);
                 errdefer self.pop();
             },
