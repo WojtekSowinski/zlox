@@ -1,5 +1,5 @@
 const std = @import("std");
-const bytecode = @import("chunk.zig");
+const bytecode = @import("bytecode.zig");
 const value = @import("value.zig");
 const VM = @import("vm.zig").VM;
 
