@@ -7,18 +7,20 @@ pub const OpCode = enum(u8) {
     ret,
     con,
     long_con,
+    negate,
 };
 
 pub const Instruction = union(OpCode) {
     ret: void,
     con: u8,
     long_con: u24,
+    negate: void,
 
     const Self = @This();
 
     pub fn size(self: Instruction) usize {
         return switch (self) {
-            .ret => 1,
+            .ret, .negate => 1,
             .con => 2,
             .long_con => 4,
         };
@@ -28,6 +30,7 @@ pub const Instruction = union(OpCode) {
         const opcode: OpCode = @enumFromInt(ptr[0]);
         switch (opcode) {
             .ret => return .ret,
+            .negate => return .negate,
             .con => {
                 const valIndex = ptr[1];
                 return .{ .con = valIndex };

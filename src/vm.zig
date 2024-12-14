@@ -42,17 +42,14 @@ pub const VM = struct {
                     value.print(self.stack.pop());
                     return .ok;
                 },
+                .negate => self.stack.push(-self.stack.pop()),
                 .con => |index| {
                     const constant: Value = self.readConstant(index);
                     self.stack.push(constant);
-                    value.print(constant);
-                    std.debug.print("\n", .{});
                 },
                 .long_con => |index| {
                     const constant: Value = self.readConstant(index);
                     self.stack.push(constant);
-                    value.print(constant);
-                    std.debug.print("\n", .{});
                 },
             }
         }
