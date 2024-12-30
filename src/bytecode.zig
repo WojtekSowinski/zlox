@@ -3,27 +3,6 @@ const builtin = @import("builtin");
 const Value = @import("value.zig").Value;
 const RunLengthArray = @import("run-length-encoding.zig").RunLengthArray;
 
-// pub const OpCode = enum(u8) {
-//     ret,
-//     constant,
-//     long_con,
-//     negate,
-//     add,
-//     multiply,
-//     subtract,
-//     divide,
-//     nil,
-//     true,
-//     false,
-//     not,
-//     equal,
-//     not_equal,
-//     less_than,
-//     greater_than,
-//     less_or_equal,
-//     greater_or_equal,
-// };
-
 pub const OpCode = std.meta.Tag(Instruction);
 
 pub const Instruction = union(enum) {

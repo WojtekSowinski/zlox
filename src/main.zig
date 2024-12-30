@@ -20,11 +20,12 @@ pub fn main() !void {
     var in_bw = std.io.bufferedReader(stdin_file);
     const stdin = in_bw.reader();
 
-    var mainVM = try vm.VM.init(allocator);
+    var mainVM = vm.VM{};
+    try mainVM.init(allocator);
+    defer mainVM.deinit();
     mainVM.input_reader = stdin.any();
     mainVM.output_writer = stdout.any();
     mainVM.error_writer = stderr.any();
-    defer mainVM.deinit();
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);

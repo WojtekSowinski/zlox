@@ -30,23 +30,20 @@ const empty_reader = AnyReader{
 pub const VM = struct {
     chunk: *Chunk = undefined,
     ip: [*]u8 = undefined,
-    stack: Stack(Value),
+    stack: Stack(Value) = undefined,
     input_reader: AnyReader = empty_reader,
     output_writer: AnyWriter = null_writer,
     error_writer: AnyWriter = null_writer,
-    gc: LoxGarbageCollector,
+    gc: LoxGarbageCollector = undefined,
 
     const Self = @This();
 
-    pub inline fn init(
-        // INFO: init() is inlined to prevent vm.gc.allocator().ptr from
-        // being invalidated when init() returns.
+    pub fn init(
+        self: *Self,
         allocator: std.mem.Allocator,
-    ) !Self {
-        var vm = Self{ .gc = undefined, .stack = undefined };
-        vm.gc = LoxGarbageCollector.init(allocator);
-        vm.stack = try Stack(Value).init(vm.gc.allocator(), 256);
-        return vm;
+    ) !void {
+        self.gc = LoxGarbageCollector.init(allocator);
+        self.stack = try Stack(Value).init(self.gc.allocator(), 256);
     }
 
     pub fn interpret(self: *Self, source_code: []const u8) !void {
