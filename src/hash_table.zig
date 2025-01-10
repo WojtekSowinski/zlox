@@ -33,8 +33,9 @@ pub fn HashTable(Key: type, Value: type, hash: fn (Key) u32, eq: fn (Key, Key) b
         }
 
         pub fn put(self: *Self, key: Key, value: Value, allocator: Allocator) !void {
-            if (self.count >= self.maxLoad()) self.grow(allocator);
-            self.insert(key, value);
+            if (self.count >= self.maxLoad()) try self.grow(allocator);
+            const index = self.findIndex(key);
+            self.insertAt(key, value, index);
         }
 
         pub fn get(self: Self, key: Key) ?Value {
@@ -51,39 +52,37 @@ pub fn HashTable(Key: type, Value: type, hash: fn (Key) u32, eq: fn (Key, Key) b
         }
 
         fn grow(self: *Self, allocator: Allocator) !void {
-            const new_table = try initCapacity(allocator, self.keys.len * 2);
-            self.copyAll(new_table);
+            var new_table = try initCapacity(allocator, self.keys.len * 2);
+            self.copyAll(&new_table);
             self.deinit(allocator);
             self.* = new_table;
         }
 
         fn copyAll(from: Self, to: *Self) void {
             for (from.keys, from.values) |key, value| {
-                if (key) |k| to.insert(k, value);
+                if (key) |k| to.insertAt(k, value, to.findIndex(k));
             }
         }
 
-        fn insert(self: *Self, key: Key, value: Value) void {
-            const index = self.findIndex(key);
+        pub fn insertAt(self: *Self, key: Key, value: Value, index: usize) void {
             if (self.keys[index] == null and !self.tombstones.isSet(index)) self.count += 1;
             self.keys[index] = key;
             self.values[index] = value;
             self.tombstones.unset(index);
         }
 
-        fn findIndex(self: Self, key: Key) usize {
+        pub fn findIndex(self: Self, key: Key) usize {
             var index = hash(key) & (self.keys.len - 1);
             var last_tombstone: ?usize = null;
             while (true) {
                 const current_key = self.keys[index];
-                if (eq(current_key, key)) return index;
                 if (current_key == null) {
                     if (self.tombstones.isSet(index)) {
                         last_tombstone = last_tombstone orelse index;
                     } else {
                         return last_tombstone orelse index;
                     }
-                }
+                } else if (eq(current_key.?, key)) return index;
                 index = (index + 1) & (self.keys.len - 1);
             }
         }

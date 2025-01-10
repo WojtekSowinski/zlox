@@ -42,7 +42,8 @@ pub const VM = struct {
         self: *Self,
         allocator: std.mem.Allocator,
     ) !void {
-        self.gc = LoxGarbageCollector.init(allocator);
+        self.gc = try LoxGarbageCollector.init(allocator);
+        errdefer self.gc.deinit();
         self.stack = try Stack(Value).init(self.gc.allocator(), 256);
     }
 
@@ -170,6 +171,7 @@ pub const VM = struct {
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
         self.gc.deleteObjects();
+        self.gc.deinit();
     }
 
     fn reportRuntimeError(self: *Self, comptime fmt: []const u8, args: anytype) !void {

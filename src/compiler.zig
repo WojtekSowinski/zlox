@@ -220,8 +220,8 @@ fn literal(self: *Self) !void {
 fn string(self: *Self) !void {
     const lexeme = self.parser.previous.lexeme;
     const text = lexeme[1 .. lexeme.len - 1];
-    const obj = try self.gc.makeObject(.const_string);
-    obj.as(object.String).text = text;
+    const obj = &((try self.gc.borrowString(text)).obj);
+    errdefer self.gc.deleteObject(obj);
     try self.emitConstant(.{ .object = obj });
 }
 

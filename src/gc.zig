@@ -4,11 +4,14 @@ const object = @import("object.zig");
 const Obj = object.Obj;
 const String = object.String;
 const ObjectType = object.ObjectType;
+const HashTable = @import("hash_table.zig").HashTable;
 
 base_allocator: Allocator,
 objects: ?*Obj,
+string_pool: StringPool,
 
 const Self = @This();
+const StringPool = HashTable([]const u8, *String, hashString, compareStrings);
 
 pub fn makeObject(self: *Self, obj_type: ObjectType) !*Obj {
     var obj: *Obj = undefined;
@@ -35,19 +38,32 @@ fn hashString(text: []const u8) u32 {
     return hash;
 }
 
+fn compareStrings(str1: []const u8, str2: []const u8) bool {
+    return std.mem.eql(u8, str1, str2);
+}
+
 pub fn takeString(self: *Self, text: []const u8) !*String {
+    if (self.string_pool.get(text)) |interned| {
+        self.allocator().free(text);
+        return interned;
+    }
     const obj = try self.makeObject(.owned_string);
+    errdefer self.deleteObject(obj);
     const string: *String = @fieldParentPtr("obj", obj);
     string.text = text;
     string.hash = hashString(text);
+    try self.string_pool.put(text, string, self.base_allocator);
     return string;
 }
 
 pub fn borrowString(self: *Self, text: []const u8) !*String {
+    if (self.string_pool.get(text)) |interned| return interned;
     const obj = try self.makeObject(.const_string);
+    errdefer self.deleteObject(obj);
     const string: *String = @fieldParentPtr("obj", obj);
     string.text = text;
     string.hash = hashString(text);
+    try self.string_pool.put(text, string, self.base_allocator);
     return string;
 }
 
@@ -60,7 +76,7 @@ pub fn deleteObjects(self: *Self) void {
     self.objects = null;
 }
 
-fn deleteObject(self: *Self, obj: *Obj) void {
+pub fn deleteObject(self: *Self, obj: *Obj) void {
     switch (obj.type) {
         .const_string => {
             const str = obj.as(String);
@@ -74,8 +90,17 @@ fn deleteObject(self: *Self, obj: *Obj) void {
     }
 }
 
-pub fn init(base_allocator: Allocator) Self {
-    return Self{ .base_allocator = base_allocator, .objects = null };
+pub fn init(base_allocator: Allocator) !Self {
+    const string_pool = try StringPool.init(base_allocator);
+    return Self{
+        .base_allocator = base_allocator,
+        .objects = null,
+        .string_pool = string_pool,
+    };
+}
+
+pub fn deinit(self: *Self) void {
+    self.string_pool.deinit(self.base_allocator);
 }
 
 fn allocFn(ctx: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {

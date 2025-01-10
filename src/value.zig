@@ -44,9 +44,6 @@ pub const Value = union(LoxType) {
     }
 
     pub inline fn equals(self: Self, other: Self) bool {
-        if (self.isString() and other.isString()) {
-            return std.mem.eql(u8, getSlice(self), getSlice(other));
-        }
         return std.meta.eql(self, other);
     }
 
