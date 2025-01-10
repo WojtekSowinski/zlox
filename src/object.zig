@@ -34,5 +34,6 @@ pub const ObjectType = enum {
 
 pub const String = struct {
     obj: Obj,
+    hash: u32,
     text: []const u8,
 };

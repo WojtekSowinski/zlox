@@ -20,6 +20,19 @@ pub fn build(b: *std.Build) void {
     fmt_step.dependOn(&fmt.step);
     b.default_step.dependOn(fmt_step);
 
+    const exe_check = b.addExecutable(.{
+        .name = "zlox",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exe_check.root_module.addOptions("build_config", options);
+
+    const check = b.step("check", "Check if zlox compiles.");
+    check.dependOn(fmt_step);
+    check.dependOn(&exe_check.step);
+
     const exe = b.addExecutable(.{
         .name = "zlox",
         .root_source_file = b.path("src/main.zig"),

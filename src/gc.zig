@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const object = @import("object.zig");
 const Obj = object.Obj;
+const String = object.String;
 const ObjectType = object.ObjectType;
 
 base_allocator: Allocator,
@@ -25,6 +26,31 @@ pub fn makeObject(self: *Self, obj_type: ObjectType) !*Obj {
     return obj;
 }
 
+fn hashString(text: []const u8) u32 {
+    var hash: u32 = 2166136261;
+    for (text) |char| {
+        hash ^= char;
+        hash *%= 16777619;
+    }
+    return hash;
+}
+
+pub fn takeString(self: *Self, text: []const u8) !*String {
+    const obj = try self.makeObject(.owned_string);
+    const string: *String = @fieldParentPtr("obj", obj);
+    string.text = text;
+    string.hash = hashString(text);
+    return string;
+}
+
+pub fn borrowString(self: *Self, text: []const u8) !*String {
+    const obj = try self.makeObject(.const_string);
+    const string: *String = @fieldParentPtr("obj", obj);
+    string.text = text;
+    string.hash = hashString(text);
+    return string;
+}
+
 pub fn deleteObjects(self: *Self) void {
     var objects = self.objects;
     while (objects) |obj| {
@@ -37,11 +63,11 @@ pub fn deleteObjects(self: *Self) void {
 fn deleteObject(self: *Self, obj: *Obj) void {
     switch (obj.type) {
         .const_string => {
-            const str = obj.as(object.String);
+            const str = obj.as(String);
             self.allocator().destroy(str);
         },
         .owned_string => {
-            const str = obj.as(object.String);
+            const str = obj.as(String);
             self.allocator().free(str.text);
             self.allocator().destroy(str);
         },

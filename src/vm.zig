@@ -132,15 +132,13 @@ pub const VM = struct {
     }
 
     fn concatenate(self: *Self, left: Value, right: Value) !Value {
-        const str1 = left.object.as(object.String);
-        const str2 = right.object.as(object.String);
-        const new_text = try self.gc.allocator().alloc(u8, str1.text.len + str2.text.len);
-        @memcpy(new_text[0..str1.text.len], str1.text);
-        @memcpy(new_text[str1.text.len..], str2.text);
-        const obj = try self.gc.makeObject(.owned_string);
-        const new_str = obj.as(object.String);
-        new_str.text = new_text;
-        return .{ .object = obj };
+        const str1 = left.object.as(object.String).text;
+        const str2 = right.object.as(object.String).text;
+        const new_text = try self.gc.allocator().alloc(u8, str1.len + str2.len);
+        @memcpy(new_text[0..str1.len], str1);
+        @memcpy(new_text[str1.len..], str2);
+        const new_str = try self.gc.takeString(new_text);
+        return .{ .object = &(new_str.obj) };
     }
 
     inline fn runBinaryOp(
