@@ -164,6 +164,27 @@ fn consume(self: *Self, expected: TokenType, err_msg: []const u8) !void {
 
 fn statement(self: *Self) !void {
     try self.command();
+    if (self.parser.panic_mode) try self.synchronize();
+}
+
+fn synchronize(self: *Self) !void {
+    self.parser.panic_mode = false;
+    while (self.parser.current.type != .eof) {
+        if (self.parser.previous.type == .semicolon) return;
+        switch (self.parser.current.type) {
+            .kw_class,
+            .kw_fun,
+            .kw_var,
+            .kw_for,
+            .kw_if,
+            .kw_while,
+            .kw_print,
+            .kw_return,
+            => return,
+            else => {},
+        }
+        try self.advance();
+    }
 }
 
 fn command(self: *Self) !void {
