@@ -67,10 +67,13 @@ pub const VM = struct {
             self.ip += instruction.size();
             switch (instruction) {
                 .ret => {
-                    self.stack.pop().print();
-                    std.debug.print("\n", .{});
                     return;
                 },
+                .print => {
+                    self.stack.pop().print();
+                    std.debug.print("\n", .{});
+                },
+                .pop => _ = self.stack.pop(),
                 .true => try self.stack.push(.{ .boolean = true }),
                 .false => try self.stack.push(.{ .boolean = false }),
                 .nil => try self.stack.push(.nil),

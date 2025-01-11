@@ -100,8 +100,7 @@ pub fn init(
 pub fn compile(self: *Self, source_code: []const u8) !void {
     self.tokens = Scanner.init(source_code);
     try self.advance();
-    try self.expression();
-    try self.consume(.eof, "Expected end of expression.");
+    while (!try self.match(.eof)) try self.statement();
     try self.endCompilation();
     if (self.parser.had_error) return error.CompilerError;
 }
@@ -113,6 +112,16 @@ fn advance(self: *Self) !void {
         if (self.parser.current.type != .scanning_error) break;
         try self.errorAtCurrent(self.parser.current.lexeme);
     }
+}
+
+fn match(self: *Self, token_type: TokenType) !bool {
+    if (!self.checkFor(token_type)) return false;
+    try self.advance();
+    return true;
+}
+
+inline fn checkFor(self: Self, token_type: TokenType) bool {
+    return self.parser.current.type == token_type;
 }
 
 fn errorAtPrevious(self: *Self, message: []const u8) !void {
@@ -151,6 +160,30 @@ fn consume(self: *Self, expected: TokenType, err_msg: []const u8) !void {
         return;
     }
     try self.errorAtCurrent(err_msg);
+}
+
+fn statement(self: *Self) !void {
+    try self.command();
+}
+
+fn command(self: *Self) !void {
+    if (try self.match(.kw_print)) {
+        try self.printStatement();
+    } else {
+        try self.expressionStatement();
+    }
+}
+
+fn printStatement(self: *Self) !void {
+    try self.expression();
+    try self.consume(.semicolon, "Expected ';' after a print statement.");
+    try self.emitInstruction(.print, self.parser.previous.line);
+}
+
+fn expressionStatement(self: *Self) !void {
+    try self.expression();
+    try self.consume(.semicolon, "Expected ';' after an expression.");
+    try self.emitInstruction(.pop, self.parser.previous.line);
 }
 
 fn expression(self: *Self) !void {

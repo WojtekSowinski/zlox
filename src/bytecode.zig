@@ -24,6 +24,8 @@ pub const Instruction = union(enum) {
     greater_than,
     less_or_equal,
     greater_or_equal,
+    print,
+    pop,
 
     const Self = @This();
 
