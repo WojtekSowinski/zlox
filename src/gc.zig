@@ -103,19 +103,24 @@ pub fn deinit(self: *Self) void {
     self.string_pool.deinit(self.base_allocator);
 }
 
-fn allocFn(ctx: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8 {
+fn allocFn(ctx: *anyopaque, len: usize, ptr_align: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
     const self: *Self = @ptrCast(@alignCast(ctx));
     return self.base_allocator.rawAlloc(len, ptr_align, ret_addr);
 }
 
-fn resizeFn(ctx: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
+fn resizeFn(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
     const self: *Self = @ptrCast(@alignCast(ctx));
-    return self.base_allocator.rawResize(buf, buf_align, new_len, ret_addr);
+    return self.base_allocator.rawResize(memory, alignment, new_len, ret_addr);
 }
 
-fn freeFn(ctx: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void {
+fn remapFn(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
     const self: *Self = @ptrCast(@alignCast(ctx));
-    return self.base_allocator.rawFree(buf, buf_align, ret_addr);
+    return self.base_allocator.rawRemap(memory, alignment, new_len, ret_addr);
+}
+
+fn freeFn(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+    const self: *Self = @ptrCast(@alignCast(ctx));
+    return self.base_allocator.rawFree(memory, alignment, ret_addr);
 }
 
 pub fn allocator(self: *Self) Allocator {
@@ -125,6 +130,7 @@ pub fn allocator(self: *Self) Allocator {
             .alloc = allocFn,
             .free = freeFn,
             .resize = resizeFn,
+            .remap = remapFn,
         },
     };
 }

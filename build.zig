@@ -20,11 +20,15 @@ pub fn build(b: *std.Build) void {
     fmt_step.dependOn(&fmt.step);
     b.default_step.dependOn(fmt_step);
 
-    const exe_check = b.addExecutable(.{
-        .name = "zlox",
+    const mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+    });
+
+    const exe_check = b.addExecutable(.{
+        .name = "zlox",
+        .root_module = mod,
     });
 
     exe_check.root_module.addOptions("build_config", options);
@@ -35,9 +39,7 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "zlox",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = mod,
     });
 
     exe.root_module.addOptions("build_config", options);
@@ -56,9 +58,7 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     const unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = mod,
     });
 
     unit_tests.root_module.addOptions("build_config", options);

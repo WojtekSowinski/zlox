@@ -3,63 +3,63 @@ const bytecode = @import("bytecode.zig");
 const vm = @import("vm.zig");
 const debug = @import("debug.zig");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(gpa.deinit() == .ok);
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    var allocator = init.gpa;
 
-    const stderr_file = std.io.getStdErr().writer();
-    var err_bw = std.io.bufferedWriter(stderr_file);
-    const stderr = err_bw.writer();
+    const io = init.io;
 
-    const stdout_file = std.io.getStdOut().writer();
-    var out_bw = std.io.bufferedWriter(stdout_file);
-    const stdout = out_bw.writer();
+    var stderr_buff: [1024]u8 = undefined;
+    var stderr_writer = std.Io.File.stderr().writerStreaming(io, &stderr_buff);
+    var stderr = &stderr_writer.interface;
 
-    const stdin_file = std.io.getStdIn().reader();
-    var in_bw = std.io.bufferedReader(stdin_file);
-    const stdin = in_bw.reader();
+    var stdout_buff: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &stdout_buff);
+    var stdout = &stdout_writer.interface;
+
+    var stdin_buff: [1024]u8 = undefined;
+    var stdin_reader = std.Io.File.stdin().readerStreaming(io, &stdin_buff);
+    var stdin = &stdin_reader.interface;
 
     var mainVM = vm.VM{};
     try mainVM.init(allocator);
     defer mainVM.deinit();
-    mainVM.input_reader = stdin.any();
-    mainVM.output_writer = stdout.any();
-    mainVM.error_writer = stderr.any();
+    mainVM.input_reader = stdin;
+    mainVM.output_writer = stdout;
+    mainVM.error_writer = stderr;
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const a = init.minimal.args;
+    const args = try a.toSlice(init.arena.allocator());
 
     if (args.len == 1) {
         while (true) {
-            try out_bw.flush();
-            try err_bw.flush();
-            try stdout_file.writeAll("> ");
-            var line_buffer: [1024]u8 = undefined;
-            const line = stdin.readUntilDelimiter(&line_buffer, '\n') catch {
-                try stdout_file.writeByte('\n');
-                break;
-            };
+            try stdout.flush();
+            try stderr.flush();
+            try stdout.writeAll("> ");
+            try stdout.flush();
+            const line = stdin.takeSentinel('\n') catch break;
             _ = mainVM.interpret(line) catch {};
         }
+        try stdout.writeByte('\n');
     } else if (args.len == 2) {
-        const source = try readFile(args[1], allocator);
+        const source = try readFile(args[1], io, allocator);
         const result = mainVM.interpret(source);
         allocator.free(source);
-        try out_bw.flush();
-        try err_bw.flush();
+        try stdout.flush();
+        try stderr.flush();
         if (result) |_| {} else |_| std.process.exit(65);
     } else {
-        try stderr_file.writeAll("Usage: zlox [path]\n");
+        try stderr.writeAll("Usage: zlox [path]\n");
+        try stderr.flush();
         std.process.exit(64);
     }
 }
 
-fn readFile(path: []const u8, allocator: std.mem.Allocator) ![]u8 {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    const size = (try file.stat()).size;
-    const content = try file.readToEndAlloc(allocator, size);
+fn readFile(path: []const u8, io: std.Io, allocator: std.mem.Allocator) ![]u8 {
+    var file = try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
+    var reader = file.reader(io, &.{});
+    const size = (try file.stat(io)).size;
+    const content = try reader.interface.readAlloc(allocator, size);
     return content;
 }
 

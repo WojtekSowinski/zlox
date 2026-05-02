@@ -9,12 +9,8 @@ const config = @import("build_config");
 const debug = @import("debug.zig");
 const Stack = @import("stack.zig").Stack;
 const Compiler = @import("compiler.zig");
-const AnyReader = std.io.AnyReader;
-const AnyWriter = std.io.AnyWriter;
 const LoxGarbageCollector = @import("gc.zig");
 const object = @import("object.zig");
-
-const null_writer = std.io.null_writer.any();
 
 fn emptyRead(context: *const anyopaque, buffer: []u8) !usize {
     _ = context;
@@ -22,18 +18,15 @@ fn emptyRead(context: *const anyopaque, buffer: []u8) !usize {
     return 0;
 }
 
-const empty_reader = AnyReader{
-    .context = undefined,
-    .readFn = emptyRead,
-};
+// TODO: define a default reader and writer
 
 pub const VM = struct {
     chunk: *Chunk = undefined,
     ip: [*]u8 = undefined,
     stack: Stack(Value) = undefined,
-    input_reader: AnyReader = empty_reader,
-    output_writer: AnyWriter = null_writer,
-    error_writer: AnyWriter = null_writer,
+    input_reader: *std.Io.Reader = undefined,
+    output_writer: *std.Io.Writer = undefined,
+    error_writer: *std.Io.Writer = undefined,
     gc: LoxGarbageCollector = undefined,
 
     const Self = @This();
@@ -148,7 +141,7 @@ pub const VM = struct {
     inline fn runBinaryOp(
         self: *Self,
         comptime return_type: LoxType,
-        op: fn (f64, f64) callconv(.Inline) std.meta.TagPayload(Value, return_type),
+        op: fn (f64, f64) callconv(.@"inline") @FieldType(Value, @tagName(return_type)),
     ) !void {
         const right = self.stack.peek(0);
         const left = self.stack.peek(1);
@@ -178,10 +171,10 @@ pub const VM = struct {
     }
 
     fn reportRuntimeError(self: *Self, comptime fmt: []const u8, args: anytype) !void {
-        try std.fmt.format(self.error_writer, fmt, args);
+        try self.error_writer.print(fmt, args);
         const instruction_index = @intFromPtr(self.ip) - @intFromPtr(self.chunk.code.items.ptr) - 1;
         const line = try self.chunk.lines.get(instruction_index);
-        try std.fmt.format(self.error_writer, "\n[line {d}] in script\n", .{line});
+        try self.error_writer.print("\n[line {d}] in script\n", .{line});
         self.stack.clear();
     }
 };

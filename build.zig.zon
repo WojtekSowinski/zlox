@@ -1,7 +1,8 @@
 .{
-    .name = "zlox",
+    .name = .zlox,
     .version = "0.0.0",
-    .minimum_zig_version = "0.13.0",
+    .minimum_zig_version = "0.16.0",
+    .fingerprint = 0xd8b023c6c07b0b4c,
 
     .paths = .{
         "build.zig",

@@ -48,7 +48,9 @@ pub const Instruction = union(enum) {
                 const valIndex = std.mem.bytesToValue(u24, ptr[1..4]);
                 return .{ .long_con = valIndex };
             },
-            inline else => |tag| return std.enums.nameCast(Instruction, tag),
+            inline else => |tag| {
+                return @unionInit(Self, @tagName(tag), {});
+            },
         }
     }
 };
@@ -65,20 +67,20 @@ pub const Chunk = struct {
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) !Chunk {
-        const code = try CodeArray.initCapacity(allocator, 8);
-        errdefer code.deinit();
+        var code = try CodeArray.initCapacity(allocator, 8);
+        errdefer code.deinit(allocator);
         const lines = try Lines.init(allocator);
         return Chunk{
             .allocator = allocator,
             .code = code,
-            .constants = ValueArray.init(allocator),
+            .constants = ValueArray.empty,
             .lines = lines,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.code.deinit();
-        self.constants.deinit();
+        self.code.deinit(self.allocator);
+        self.constants.deinit(self.allocator);
         self.lines.deinit();
     }
 
@@ -113,11 +115,11 @@ pub const Chunk = struct {
     }
 
     fn write(self: *Self, byte: u8) !void {
-        try self.code.append(byte);
+        try self.code.append(self.allocator, byte);
     }
 
     fn writeMany(self: *Self, bytes: []const u8) !void {
-        try self.code.appendSlice(bytes);
+        try self.code.appendSlice(self.allocator, bytes);
     }
 
     fn pop(self: *Self) void {
@@ -125,7 +127,7 @@ pub const Chunk = struct {
     }
 
     pub fn addConstant(self: *Self, value: Value) !usize {
-        try self.constants.append(value);
+        try self.constants.append(self.allocator, value);
         return self.constants.items.len - 1;
     }
 

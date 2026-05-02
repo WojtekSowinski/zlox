@@ -9,7 +9,7 @@ const debug = @import("debug.zig");
 const GarbageCollector = @import("gc.zig");
 const object = @import("object.zig");
 
-error_writer: std.io.AnyWriter,
+error_writer: *std.Io.Writer,
 compilingChunk: *bytecode.Chunk,
 tokens: Scanner,
 parser: Parser,
@@ -47,7 +47,7 @@ const ParserRule = struct {
 };
 
 inline fn getRule(token_type: TokenType) ParserRule {
-    const number_of_tokens = @typeInfo(TokenType).Enum.fields.len;
+    const number_of_tokens = @typeInfo(TokenType).@"enum".fields.len;
     comptime var rules: [number_of_tokens]ParserRule = undefined;
     comptime {
         for (std.enums.values(TokenType)) |token| {
@@ -85,7 +85,7 @@ const Self = @This();
 
 pub fn init(
     chunk: *bytecode.Chunk,
-    error_writer: std.io.AnyWriter,
+    error_writer: *std.Io.Writer,
     gc: *GarbageCollector,
 ) Self {
     return Self{
@@ -147,7 +147,7 @@ fn errorAt(self: *Self, token: Token, message: []const u8) !void {
 }
 
 fn errPrint(self: Self, comptime fmt: []const u8, args: anytype) !void {
-    try std.fmt.format(self.error_writer, fmt, args);
+    try self.error_writer.print(fmt, args);
 }
 
 inline fn currentChunk(self: Self) *bytecode.Chunk {
