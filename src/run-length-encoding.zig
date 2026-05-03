@@ -34,7 +34,7 @@ pub fn RunLengthArray(T: type) type {
             }
             if (self.count == self.run_lengths.len) {
                 self.items = try self.allocator.realloc(self.items, self.items.len * 2);
-                self.run_lengths = try self.allocator.realloc(self.run_lengths, self.items.len * 2);
+                self.run_lengths = try self.allocator.realloc(self.run_lengths, self.items.len);
             }
             self.items[self.count] = item;
             self.run_lengths[self.count] = run_length;
