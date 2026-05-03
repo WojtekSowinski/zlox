@@ -11,6 +11,8 @@ const Stack = @import("stack.zig").Stack;
 const Compiler = @import("compiler.zig");
 const LoxGarbageCollector = @import("gc.zig");
 const object = @import("object.zig");
+const String = object.String;
+const HashTable = @import("hash_table.zig").HashTable;
 
 fn emptyRead(context: *const anyopaque, buffer: []u8) !usize {
     _ = context;
@@ -24,6 +26,7 @@ pub const VM = struct {
     chunk: *Chunk = undefined,
     ip: [*]u8 = undefined,
     stack: Stack(Value) = undefined,
+    globals: HashTable(*String, Value, String.getHash, String.equals) = undefined,
     input_reader: *std.Io.Reader = undefined,
     output_writer: *std.Io.Writer = undefined,
     error_writer: *std.Io.Writer = undefined,
@@ -37,7 +40,9 @@ pub const VM = struct {
     ) !void {
         self.gc = try LoxGarbageCollector.init(allocator);
         errdefer self.gc.deinit();
-        self.stack = try Stack(Value).init(self.gc.allocator(), 256);
+        self.globals = try .init(allocator);
+        errdefer self.globals.deinit(allocator);
+        self.stack = try .init(self.gc.allocator(), 256);
     }
 
     pub fn interpret(self: *Self, source_code: []const u8) !void {
@@ -58,7 +63,7 @@ pub const VM = struct {
                 debug.disassembleInstruction(instruction, self.chunk.*);
             }
             self.ip += instruction.size();
-            switch (instruction) {
+            execute: switch (instruction) {
                 .ret => {
                     return;
                 },
@@ -70,13 +75,26 @@ pub const VM = struct {
                 .true => try self.stack.push(.{ .boolean = true }),
                 .false => try self.stack.push(.{ .boolean = false }),
                 .nil => try self.stack.push(.nil),
-                .constant => |index| {
-                    const constant: Value = self.readConstant(index);
-                    try self.stack.push(constant);
-                },
+                .constant => |index| continue :execute .{ .long_con = index },
                 .long_con => |index| {
                     const constant: Value = self.readConstant(index);
                     try self.stack.push(constant);
+                },
+                .define_global => |index| continue :execute .{ .long_define_global = index },
+                .long_define_global => |index| {
+                    const name = self.readString(index);
+                    try self.globals.put(name, self.stack.peek(0), self.gc.allocator());
+                    _ = self.stack.pop();
+                },
+                .get_global => |index| continue :execute .{ .long_get_global = index },
+                .long_get_global => |index| {
+                    const name = self.readString(index);
+                    const val = self.globals.get(name);
+                    if (val == null) {
+                        try self.reportRuntimeError("Undefined variable {s}", .{name.text});
+                        return error.UndefinedValue;
+                    }
+                    try self.stack.push(val.?);
                 },
                 .negate => {
                     switch (self.stack.peek(0)) {
@@ -128,6 +146,10 @@ pub const VM = struct {
         return self.chunk.constants.items[index];
     }
 
+    inline fn readString(self: Self, index: usize) *String {
+        return self.readConstant(index).object.as(String);
+    }
+
     fn concatenate(self: *Self, left: Value, right: Value) !Value {
         const str1 = left.object.as(object.String).text;
         const str2 = right.object.as(object.String).text;
@@ -166,6 +188,7 @@ pub const VM = struct {
 
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
+        self.globals.deinit(self.gc.allocator());
         self.gc.deleteObjects();
         self.gc.deinit();
     }

@@ -1,7 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Value = @import("value.zig").Value;
+const String = @import("object.zig").String;
 const RunLengthArray = @import("run-length-encoding.zig").RunLengthArray;
+const HashTable = @import("hash_table.zig").HashTable;
 
 pub const OpCode = std.meta.Tag(Instruction);
 
@@ -9,6 +11,10 @@ pub const Instruction = union(enum) {
     ret,
     constant: u8,
     long_con: u24,
+    define_global: u8,
+    long_define_global: u24,
+    get_global: u8,
+    long_get_global: u24,
     negate,
     add,
     multiply,
@@ -33,6 +39,10 @@ pub const Instruction = union(enum) {
         return switch (self) {
             .constant => 2,
             .long_con => 4,
+            .define_global => 2,
+            .long_define_global => 4,
+            .get_global => 2,
+            .long_get_global => 4,
             else => 1,
         };
     }
@@ -47,6 +57,22 @@ pub const Instruction = union(enum) {
             .long_con => {
                 const valIndex = std.mem.bytesToValue(u24, ptr[1..4]);
                 return .{ .long_con = valIndex };
+            },
+            .define_global => {
+                const idIndex = ptr[1];
+                return .{ .define_global = idIndex };
+            },
+            .long_define_global => {
+                const idIndex = std.mem.bytesToValue(u24, ptr[1..4]);
+                return .{ .long_define_global = idIndex };
+            },
+            .get_global => {
+                const idIndex = ptr[1];
+                return .{ .get_global = idIndex };
+            },
+            .long_get_global => {
+                const idIndex = std.mem.bytesToValue(u24, ptr[1..4]);
+                return .{ .long_get_global = idIndex };
             },
             inline else => |tag| {
                 return @unionInit(Self, @tagName(tag), {});
@@ -95,7 +121,7 @@ pub const Chunk = struct {
     ) !void {
         try self.write(@intFromEnum(instruction));
         errdefer self.pop();
-        switch (instruction) {
+        write_operand: switch (instruction) {
             .constant => |index| {
                 try self.write(index);
                 errdefer self.pop();
@@ -109,6 +135,10 @@ pub const Chunk = struct {
                 }
                 errdefer for (0..3) |_| self.pop();
             },
+            .define_global => |index| continue :write_operand .{ .constant = index },
+            .long_define_global => |index| continue :write_operand .{ .long_con = index },
+            .get_global => |index| continue :write_operand .{ .constant = index },
+            .long_get_global => |index| continue :write_operand .{ .long_con = index },
             else => {},
         }
         try self.lines.append(line, instruction.size());

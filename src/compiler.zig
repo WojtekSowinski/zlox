@@ -60,6 +60,7 @@ inline fn getRule(token_type: TokenType) ParserRule {
                 .star => .{ null, binary, .product },
                 .number => .{ number, null, .none },
                 .string => .{ string, null, .none },
+                .identifier => .{ variable, null, .none },
                 .kw_nil => .{ literal, null, .none },
                 .kw_true => .{ literal, null, .none },
                 .kw_false => .{ literal, null, .none },
@@ -164,7 +165,12 @@ fn consume(self: *Self, expected: TokenType, err_msg: []const u8) !void {
 }
 
 fn statement(self: *Self) !void {
-    try self.command();
+    if (try self.match(.kw_var)) {
+        try self.varDeclaration();
+    } else {
+        try self.command();
+    }
+
     if (self.parser.panic_mode) try self.synchronize();
 }
 
@@ -189,10 +195,43 @@ fn synchronize(self: *Self) !void {
 }
 
 fn command(self: *Self) !void {
+    if (try self.match(.semicolon)) return;
+
     if (try self.match(.kw_print)) {
         try self.printStatement();
     } else {
         try self.expressionStatement();
+    }
+}
+
+fn varDeclaration(self: *Self) !void {
+    const id = try self.parseIdentifier("Expected variable name.");
+    if (try self.match(.equal)) {
+        try self.expression();
+    } else {
+        try self.emitInstruction(.nil, self.parser.previous.line);
+    }
+
+    try self.consume(.semicolon, "Expected ';' after variable declaration.");
+    try self.defineVariable(id);
+}
+
+fn parseIdentifier(self: *Self, err_msg: []const u8) !usize {
+    try self.consume(.identifier, err_msg);
+    return self.makeIdentifier(self.parser.previous);
+}
+
+fn makeIdentifier(self: *Self, token: Token) !usize {
+    const str = try self.gc.copyString(token.lexeme);
+    return self.makeConstant(.{ .object = &str.obj });
+}
+
+fn defineVariable(self: *Self, id_index: usize) !void {
+    std.debug.assert(id_index <= std.math.maxInt(u24));
+    if (id_index <= std.math.maxInt(u8)) {
+        try self.emitInstruction(.{ .define_global = @intCast(id_index) }, self.parser.previous.line);
+    } else {
+        try self.emitInstruction(.{ .long_define_global = @intCast(id_index) }, self.parser.previous.line);
     }
 }
 
@@ -272,28 +311,47 @@ fn literal(self: *Self) !void {
     try self.emitInstruction(opcode, token.line);
 }
 
+fn variable(self: *Self) !void {
+    try self.emitVariable(self.parser.previous);
+}
+
+fn emitVariable(self: *Self, name: Token) !void {
+    const arg = try self.makeIdentifier(name);
+    std.debug.assert(arg <= std.math.maxInt(u24));
+    if (arg <= std.math.maxInt(u8)) {
+        try self.emitInstruction(.{ .get_global = @intCast(arg) }, self.parser.previous.line);
+    } else {
+        try self.emitInstruction(.{ .long_get_global = @intCast(arg) }, self.parser.previous.line);
+    }
+}
+
 fn string(self: *Self) !void {
     const lexeme = self.parser.previous.lexeme;
     const text = lexeme[1 .. lexeme.len - 1];
     const obj = &((try self.gc.borrowString(text)).obj);
     errdefer self.gc.deleteObject(obj);
-    try self.emitConstant(.{ .object = obj });
+    _ = try self.emitConstant(.{ .object = obj });
 }
 
 fn number(self: *Self) !void {
     const value = std.fmt.parseFloat(f64, self.parser.previous.lexeme) catch unreachable;
-    try self.emitConstant(.{ .number = value });
+    _ = try self.emitConstant(.{ .number = value });
 }
 
-fn emitConstant(self: *Self, value: Value) !void {
+fn makeConstant(self: *Self, value: Value) !usize {
     const index = try self.currentChunk().addConstant(value);
-    if (index > std.math.maxInt(u24)) {
-        try self.errorAtPrevious("Too many constants in one chunk.");
-    } else if (index > std.math.maxInt(u8)) {
+    if (index > std.math.maxInt(u24)) try self.errorAtPrevious("Too many constants in one chunk.");
+    return index;
+}
+
+fn emitConstant(self: *Self, value: Value) !usize {
+    const index = try self.makeConstant(value);
+    if (index > std.math.maxInt(u8)) {
         try self.emitInstruction(.{ .long_con = @intCast(index) }, self.parser.previous.line);
     } else {
         try self.emitInstruction(.{ .constant = @intCast(index) }, self.parser.previous.line);
     }
+    return index;
 }
 
 fn grouping(self: *Self) !void {

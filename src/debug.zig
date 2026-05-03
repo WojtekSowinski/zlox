@@ -23,12 +23,32 @@ pub fn disassembleChunk(chunk: bytecode.Chunk, name: []const u8) void {
 pub fn disassembleInstruction(instruction: bytecode.Instruction, chunk: bytecode.Chunk) void {
     switch (instruction) {
         .constant => |index| {
-            std.debug.print("CONSTANT        {d:0>4} '", .{index});
+            std.debug.print("CONSTANT             {d:0>4} '", .{index});
             logValue(chunk.constants.items[index]);
             std.debug.print("'\n", .{});
         },
         .long_con => |index| {
-            std.debug.print("LONG_CONSTANT   {d:0>4} '", .{index});
+            std.debug.print("LONG_CONSTANT        {d:0>4} '", .{index});
+            logValue(chunk.constants.items[index]);
+            std.debug.print("'\n", .{});
+        },
+        .define_global => |index| {
+            std.debug.print("DEFINE_GLOBAL        {d:0>4} '", .{index});
+            logValue(chunk.constants.items[index]);
+            std.debug.print("'\n", .{});
+        },
+        .long_define_global => |index| {
+            std.debug.print("LONG_DEFINE_GLOBAL   {d:0>4} '", .{index});
+            logValue(chunk.constants.items[index]);
+            std.debug.print("'\n", .{});
+        },
+        .get_global => |index| {
+            std.debug.print("GET_GLOBAL        {d:0>4} '", .{index});
+            logValue(chunk.constants.items[index]);
+            std.debug.print("'\n", .{});
+        },
+        .long_get_global => |index| {
+            std.debug.print("LONG_GET_GLOBAL   {d:0>4} '", .{index});
             logValue(chunk.constants.items[index]);
             std.debug.print("'\n", .{});
         },

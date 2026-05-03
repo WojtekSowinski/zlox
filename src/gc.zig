@@ -67,6 +67,12 @@ pub fn borrowString(self: *Self, text: []const u8) !*String {
     return string;
 }
 
+pub fn copyString(self: *Self, text: []const u8) !*String {
+    const newstr = try self.base_allocator.alloc(u8, text.len);
+    @memcpy(newstr, text);
+    return self.takeString(newstr);
+}
+
 pub fn deleteObjects(self: *Self) void {
     var objects = self.objects;
     while (objects) |obj| {
