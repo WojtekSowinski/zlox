@@ -4,8 +4,6 @@ const vm = @import("vm.zig");
 const debug = @import("debug.zig");
 
 pub fn main(init: std.process.Init) !void {
-    var allocator = init.gpa;
-
     const io = init.io;
 
     var stderr_buff: [1024]u8 = undefined;
@@ -16,12 +14,14 @@ pub fn main(init: std.process.Init) !void {
     var stdout_writer = std.Io.File.stdout().writerStreaming(io, &stdout_buff);
     var stdout = &stdout_writer.interface;
 
-    var stdin_buff: [1024]u8 = undefined;
+    var stdin_buff: [64]u8 = undefined;
+    var repl_line_buff = std.Io.Writer.Allocating.init(init.gpa);
+    defer repl_line_buff.deinit();
     var stdin_reader = std.Io.File.stdin().readerStreaming(io, &stdin_buff);
     var stdin = &stdin_reader.interface;
 
     var mainVM = vm.VM{};
-    try mainVM.init(allocator);
+    try mainVM.init(init.gpa);
     defer mainVM.deinit();
     mainVM.input_reader = stdin;
     mainVM.output_writer = stdout;
@@ -32,18 +32,23 @@ pub fn main(init: std.process.Init) !void {
 
     if (args.len == 1) {
         while (true) {
-            try stdout.flush();
-            try stderr.flush();
             try stdout.writeAll("> ");
             try stdout.flush();
-            const line = stdin.takeSentinel('\n') catch break;
-            _ = mainVM.interpret(line) catch {};
+
+            const length = stdin.streamDelimiter(&repl_line_buff.writer, '\n') catch break;
+            defer repl_line_buff.clearRetainingCapacity();
+            stdin.toss(1);
+            if (length == 0) continue;
+
+            _ = mainVM.interpret(repl_line_buff.written()) catch {};
+
+            try stdout.flush();
+            try stderr.flush();
         }
         try stdout.writeByte('\n');
     } else if (args.len == 2) {
-        const source = try readFile(args[1], io, allocator);
+        const source = try readFile(args[1], io, init.arena.allocator());
         const result = mainVM.interpret(source);
-        allocator.free(source);
         try stdout.flush();
         try stderr.flush();
         if (result) |_| {} else |_| std.process.exit(65);
