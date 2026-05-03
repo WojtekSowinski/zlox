@@ -8,6 +8,7 @@ const Value = @import("value.zig").Value;
 const debug = @import("debug.zig");
 const GarbageCollector = @import("gc.zig");
 const object = @import("object.zig");
+const config = @import("build_config");
 
 error_writer: *std.Io.Writer,
 compilingChunk: *bytecode.Chunk,
@@ -302,7 +303,7 @@ fn grouping(self: *Self) !void {
 
 inline fn endCompilation(self: *Self) !void {
     try self.emitReturn();
-    debug.disassembleChunk(self.currentChunk().*, "code");
+    if (config.disassemble) debug.disassembleChunk(self.currentChunk().*, "code");
 }
 
 inline fn emitReturn(self: *Self) !void {

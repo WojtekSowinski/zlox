@@ -6,6 +6,7 @@ pub fn build(b: *std.Build) void {
 
     const options = b.addOptions();
     options.addOption(bool, "trace_execution", b.release_mode == .off);
+    options.addOption(bool, "disassemble", b.release_mode == .off);
 
     const fmt_step = b.step("fmt", "Run formatting checks");
 

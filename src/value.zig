@@ -51,12 +51,12 @@ pub const Value = union(LoxType) {
         return value.object.as(object.String).text;
     }
 
-    pub inline fn print(self: Self) void {
+    pub inline fn print(self: Self, writer: *std.Io.Writer) !void {
         switch (self) {
-            .number => |n| std.debug.print("{d}", .{n}),
-            .boolean => |b| std.debug.print("{s}", .{if (b) "true" else "false"}),
-            .nil => std.debug.print("nil", .{}),
-            .object => |obj| obj.print(),
+            .number => |n| try writer.print("{d}", .{n}),
+            .boolean => |b| try writer.print("{s}", .{if (b) "true" else "false"}),
+            .nil => try writer.print("nil", .{}),
+            .object => |obj| try obj.print(writer),
         }
     }
 };

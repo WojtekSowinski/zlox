@@ -54,7 +54,7 @@ pub const VM = struct {
         while (true) {
             const instruction = Instruction.readFrom(self.ip);
             if (config.trace_execution) {
-                debug.printStack(self.*);
+                debug.logStack(self.*);
                 debug.disassembleInstruction(instruction, self.chunk.*);
             }
             self.ip += instruction.size();
@@ -63,8 +63,8 @@ pub const VM = struct {
                     return;
                 },
                 .print => {
-                    self.stack.pop().print();
-                    std.debug.print("\n", .{});
+                    try self.stack.pop().print(self.output_writer);
+                    try self.output_writer.writeByte('\n');
                 },
                 .pop => _ = self.stack.pop(),
                 .true => try self.stack.push(.{ .boolean = true }),

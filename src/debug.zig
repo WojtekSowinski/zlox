@@ -24,12 +24,12 @@ pub fn disassembleInstruction(instruction: bytecode.Instruction, chunk: bytecode
     switch (instruction) {
         .constant => |index| {
             std.debug.print("CONSTANT        {d:0>4} '", .{index});
-            chunk.constants.items[index].print();
+            logValue(chunk.constants.items[index]);
             std.debug.print("'\n", .{});
         },
         .long_con => |index| {
             std.debug.print("LONG_CONSTANT   {d:0>4} '", .{index});
-            chunk.constants.items[index].print();
+            logValue(chunk.constants.items[index]);
             std.debug.print("'\n", .{});
         },
         .ret => std.debug.print("RETURN\n", .{}),
@@ -48,13 +48,20 @@ fn toUpper(comptime str: []const u8) [str.len]u8 {
     return upper;
 }
 
-pub fn printStack(vm: VM) void {
+pub fn logStack(vm: VM) void {
     std.debug.print(" " ** 10, .{});
     var ptr: [*]Value = vm.stack.items.ptr;
     while (ptr != vm.stack.top) : (ptr += 1) {
         std.debug.print("[ ", .{});
-        ptr[0].print();
+        logValue(ptr[0]);
         std.debug.print(" ]", .{});
     }
     std.debug.print("\n", .{});
+}
+
+fn logValue(value: Value) void {
+    var buffer: [64]u8 = undefined;
+    const stderr = std.debug.lockStderr(&buffer);
+    defer std.debug.unlockStderr();
+    value.print(&stderr.file_writer.interface) catch return;
 }
