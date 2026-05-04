@@ -273,10 +273,11 @@ pub const VM = struct {
     }
 
     fn reportRuntimeError(self: *Self, comptime fmt: []const u8, args: anytype) !void {
-        try self.error_writer.print(fmt, args);
         const instruction_index = @intFromPtr(self.ip) - @intFromPtr(self.chunk.code.items.ptr) - 1;
         const line = try self.chunk.lines.get(instruction_index);
-        try self.error_writer.print("\n[line {d}] in script\n", .{line});
+        try self.error_writer.print("\n[line {d}] Runtime error: ", .{line});
+        try self.error_writer.print(fmt, args);
+        try self.error_writer.writeByte('\n');
         self.stack.clear();
     }
 };

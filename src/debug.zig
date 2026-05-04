@@ -60,10 +60,9 @@ fn toUpper(comptime str: []const u8) [str.len]u8 {
 }
 
 pub fn logStack(vm: VM) void {
-    var ptr: [*]Value = vm.stack.items.ptr;
-    while (ptr != vm.stack.top) : (ptr += 1) {
+    for (vm.stack.array[0..vm.stack.count]) |val| {
         std.debug.print("[ ", .{});
-        logValue(ptr[0]);
+        logValue(val);
         std.debug.print(" ]", .{});
     }
     std.debug.print("\n", .{});

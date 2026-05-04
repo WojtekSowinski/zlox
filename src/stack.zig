@@ -2,9 +2,8 @@ const std = @import("std");
 
 pub fn Stack(T: type) type {
     return struct {
-        items: []T,
-        top: [*]T,
-        bound: [*]T,
+        array: []T,
+        count: usize,
         allocator: std.mem.Allocator,
 
         const Self = @This();
@@ -12,43 +11,40 @@ pub fn Stack(T: type) type {
         pub fn init(allocator: std.mem.Allocator, capacity: usize) !Self {
             const items = try allocator.alloc(T, capacity);
             return .{
-                .items = items,
-                .top = items.ptr,
-                .bound = items.ptr + items.len,
+                .array = items,
+                .count = 0,
                 .allocator = allocator,
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.allocator.free(self.items);
+            self.allocator.free(self.array);
         }
 
         pub inline fn peek(self: Self, distance: usize) T {
-            return (self.top - distance - 1)[0];
+            return self.array[self.count - 1 - distance];
         }
 
         pub inline fn swap(self: Self, item: T) void {
-            (self.top - 1)[0] = item;
+            self.array[self.count - 1] = item;
         }
 
         pub inline fn pop(self: *Self) T {
-            self.top -= 1;
-            return self.top[0];
+            self.count -= 1;
+            return self.array[self.count];
         }
 
         pub fn push(self: *Self, item: T) !void {
-            if (self.top == self.bound) {
-                const offset = self.items.len;
-                self.items = try self.allocator.realloc(self.items, self.items.len * 2);
-                self.bound = self.items.ptr + self.items.len;
-                self.top = self.items.ptr + offset;
+            const index = self.count;
+            if (self.count == self.array.len) {
+                self.array = try self.allocator.realloc(self.array, self.array.len * 2);
             }
-            self.top[0] = item;
-            self.top += 1;
+            self.array[index] = item;
+            self.count += 1;
         }
 
         pub inline fn clear(self: *Self) void {
-            self.top = self.items.ptr;
+            self.count = 0;
         }
     };
 }
