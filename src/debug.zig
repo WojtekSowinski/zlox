@@ -23,20 +23,27 @@ pub fn disassembleChunk(chunk: bytecode.Chunk, name: []const u8) void {
 pub fn disassembleInstruction(instruction: bytecode.Instruction, chunk: bytecode.Chunk) void {
     switch (instruction) {
         .ret => std.debug.print("RETURN\n", .{}),
+
         inline .constant,
-        .def_global,
-        .get_global,
-        .set_global,
         .long_constant,
-        .long_def_global,
-        .long_get_global,
-        .long_set_global,
         => |index, tag| {
             const opName = comptime toUpper(@tagName(tag));
             std.debug.print(opName ++ (" " ** (21 - opName.len)) ++ "{d:0>4} '", .{index});
             logValue(chunk.constants.items[index]);
             std.debug.print("'\n", .{});
         },
+
+        inline .def_global,
+        .get_global,
+        .set_global,
+        .long_def_global,
+        .long_get_global,
+        .long_set_global,
+        => |index, tag| {
+            const opName = comptime toUpper(@tagName(tag));
+            std.debug.print(opName ++ (" " ** (21 - opName.len)) ++ "{d:0>4}\n", .{index});
+        },
+
         inline else => |_, tag| {
             const opName = comptime toUpper(@tagName(tag));
             std.debug.print(opName ++ "\n", .{});

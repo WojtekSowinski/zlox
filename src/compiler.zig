@@ -11,12 +11,14 @@ const debug = @import("debug.zig");
 const GarbageCollector = @import("gc.zig");
 const object = @import("object.zig");
 const config = @import("build_config");
+const GlobalVarStore = @import("vm.zig").GlobalVarStore;
 
 error_writer: *std.Io.Writer,
 compilingChunk: *bytecode.Chunk,
 tokens: Scanner,
 parser: Parser,
 gc: *GarbageCollector,
+globals: *GlobalVarStore,
 
 const Parser = struct {
     previous: Token = undefined,
@@ -91,8 +93,10 @@ pub fn init(
     chunk: *bytecode.Chunk,
     error_writer: *std.Io.Writer,
     gc: *GarbageCollector,
+    globals: *GlobalVarStore,
 ) Self {
     return Self{
+        .globals = globals,
         .gc = gc,
         .error_writer = error_writer,
         .compilingChunk = chunk,
@@ -186,7 +190,7 @@ fn synchronize(self: *Self) !void {
     }
 }
 
-inline fn useConstantsArray(self: *Self, comptime short: OpCode, comptime long: OpCode, index: usize) !void {
+inline fn emitInstructionWithIndex(self: *Self, comptime short: OpCode, comptime long: OpCode, index: usize) !void {
     std.debug.assert(index <= std.math.maxInt(u24));
     const instruction = if (index <= std.math.maxInt(u8))
         @unionInit(Instruction, @tagName(short), @intCast(index))
@@ -234,11 +238,11 @@ fn parseIdentifier(self: *Self, err_msg: []const u8) !usize {
 
 fn makeIdentifier(self: *Self, token: Token) !usize {
     const str = try self.gc.copyString(token.lexeme);
-    return self.makeConstant(.{ .object = &str.obj });
+    return self.globals.getIndexOrCreate(str);
 }
 
 fn defineVariable(self: *Self, id_index: usize) !void {
-    try self.useConstantsArray(.def_global, .long_def_global, id_index);
+    try self.emitInstructionWithIndex(.def_global, .long_def_global, id_index);
 }
 
 fn printStatement(self: *Self) !void {
@@ -331,9 +335,9 @@ fn emitVariable(self: *Self, name: Token, can_assign: bool) !void {
     const arg = try self.makeIdentifier(name);
     if (can_assign and try self.match(.equal)) {
         try self.expression();
-        try self.useConstantsArray(.set_global, .long_set_global, arg);
+        try self.emitInstructionWithIndex(.set_global, .long_set_global, arg);
     } else {
-        try self.useConstantsArray(.get_global, .long_get_global, arg);
+        try self.emitInstructionWithIndex(.get_global, .long_get_global, arg);
     }
 }
 
@@ -360,7 +364,7 @@ fn makeConstant(self: *Self, value: Value) !usize {
 
 fn emitConstant(self: *Self, value: Value) !void {
     const index = try self.makeConstant(value);
-    return try self.useConstantsArray(.constant, .long_constant, index);
+    return try self.emitInstructionWithIndex(.constant, .long_constant, index);
 }
 
 fn grouping(self: *Self, can_assign: bool) !void {

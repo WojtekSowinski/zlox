@@ -141,6 +141,9 @@ pub const Chunk = struct {
     }
 
     pub fn addConstant(self: *Self, value: Value) !usize {
+        for (self.constants.items, 0..) |item, i| {
+            if (item.equals(value)) return i;
+        }
         try self.constants.append(self.allocator, value);
         return self.constants.items.len - 1;
     }

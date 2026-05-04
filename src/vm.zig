@@ -20,16 +20,73 @@ fn emptyRead(context: *const anyopaque, buffer: []u8) !usize {
     return 0;
 }
 
+pub const GlobalVarStore = struct {
+    values: std.ArrayList(Value),
+    names: std.ArrayList(*String),
+    is_assigned: std.bit_set.DynamicBitSetUnmanaged,
+    allocator: std.mem.Allocator,
+
+    const Self = @This();
+    const Table = HashTable(*String, usize, String.getHash, String.equals);
+
+    pub fn init(allocator: std.mem.Allocator) !Self {
+        const capacity = 256;
+        var values = try std.ArrayList(Value).initCapacity(allocator, capacity);
+        errdefer values.deinit(allocator);
+        var names = try std.ArrayList(*String).initCapacity(allocator, capacity);
+        errdefer names.deinit(allocator);
+        const is_assigned = try std.bit_set.DynamicBitSetUnmanaged.initEmpty(allocator, capacity);
+        return .{ .names = names, .values = values, .is_assigned = is_assigned, .allocator = allocator };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.names.deinit(self.allocator);
+        self.values.deinit(self.allocator);
+        self.is_assigned.deinit(self.allocator);
+    }
+
+    pub fn getIndexOrCreate(self: *Self, key: *String) !usize {
+        for (self.names.items, 0..) |name, i| if (key == name) return i;
+
+        const new_index = self.values.items.len;
+        try self.values.append(self.allocator, .nil);
+        errdefer _ = self.values.pop();
+        try self.names.append(self.allocator, key);
+        errdefer _ = self.names.pop();
+        if (self.values.capacity > self.is_assigned.capacity()) {
+            try self.is_assigned.resize(self.allocator, self.values.capacity, false);
+        }
+
+        return new_index;
+    }
+
+    pub fn getValueAt(self: Self, i: usize) ?Value {
+        return if (self.is_assigned.isSet(i)) self.values.items[i] else null;
+    }
+
+    pub fn assignValue(self: *Self, i: usize, val: Value) void {
+        self.values.items[i] = val;
+        self.is_assigned.set(i);
+    }
+
+    pub fn getNameAt(self: Self, i: usize) *String {
+        return self.names.items[i];
+    }
+};
+
 // TODO: define a default reader and writer
 
 pub const VM = struct {
     chunk: *Chunk = undefined,
     ip: [*]u8 = undefined,
+
     stack: Stack(Value) = undefined,
-    globals: HashTable(*String, Value, String.getHash, String.equals) = undefined,
+    globals: GlobalVarStore = undefined,
+
     input_reader: *std.Io.Reader = undefined,
     output_writer: *std.Io.Writer = undefined,
     error_writer: *std.Io.Writer = undefined,
+
     gc: LoxGarbageCollector = undefined,
 
     const Self = @This();
@@ -41,14 +98,14 @@ pub const VM = struct {
         self.gc = try LoxGarbageCollector.init(allocator);
         errdefer self.gc.deinit();
         self.globals = try .init(allocator);
-        errdefer self.globals.deinit(allocator);
+        errdefer self.globals.deinit();
         self.stack = try .init(self.gc.allocator(), 256);
     }
 
     pub fn interpret(self: *Self, source_code: []const u8) !void {
         var chunk = try Chunk.init(self.gc.allocator());
         defer chunk.deinit();
-        var compiler = Compiler.init(&chunk, self.error_writer, &self.gc);
+        var compiler = Compiler.init(&chunk, self.error_writer, &self.gc, &self.globals);
         try compiler.compile(source_code);
         self.chunk = &chunk;
         self.ip = chunk.code.items.ptr;
@@ -83,25 +140,24 @@ pub const VM = struct {
                 },
 
                 .def_global, .long_def_global => |index| {
-                    const name = self.readString(index);
-                    _ = try self.globals.put(name, self.stack.peek(0), self.gc.allocator());
-                    _ = self.stack.pop();
+                    self.globals.assignValue(index, self.stack.pop());
                 },
 
                 .get_global, .long_get_global => |index| {
-                    const name = self.readString(index);
-                    const val = self.globals.get(name);
-                    if (val == null) {
+                    if (self.globals.getValueAt(index)) |val| {
+                        try self.stack.push(val);
+                    } else {
+                        const name = self.globals.getNameAt(index);
                         try self.reportRuntimeError("Undefined variable '{s}'", .{name.text});
                         return error.UndefinedVariable;
                     }
-                    try self.stack.push(val.?);
                 },
 
                 .set_global, .long_set_global => |index| {
-                    const name = self.readString(index);
-                    if (try self.globals.put(name, self.stack.peek(0), self.gc.allocator())) {
-                        _ = self.globals.delete(name);
+                    if (self.globals.getValueAt(index)) |_| {
+                        self.globals.assignValue(index, self.stack.peek(0));
+                    } else {
+                        const name = self.globals.getNameAt(index);
                         try self.reportRuntimeError("Undefined variable '{s}'", .{name.text});
                         return error.UndefinedVariable;
                     }
@@ -202,7 +258,7 @@ pub const VM = struct {
 
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
-        self.globals.deinit(self.gc.allocator());
+        self.globals.deinit();
         self.gc.deleteObjects();
         self.gc.deinit();
     }
