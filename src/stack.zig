@@ -25,7 +25,7 @@ pub fn Stack(T: type) type {
             return self.array[self.count - 1 - distance];
         }
 
-        pub inline fn swap(self: Self, item: T) void {
+        pub inline fn swap(self: *Self, item: T) void {
             self.array[self.count - 1] = item;
         }
 

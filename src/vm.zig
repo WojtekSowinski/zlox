@@ -114,8 +114,11 @@ pub const VM = struct {
     pub fn interpret(self: *Self, source_code: []const u8) !void {
         var chunk = try Chunk.init(self.gc.allocator());
         defer chunk.deinit();
-        var compiler = Compiler.init(&chunk, self.error_writer, &self.gc, &self.globals);
+
+        var compiler = try Compiler.init(&chunk, self.error_writer, &self.gc, &self.globals);
+        defer compiler.deinit();
         try compiler.compile(source_code);
+
         self.chunk = &chunk;
         self.ip = chunk.code.items.ptr;
         try self.run();
@@ -170,6 +173,14 @@ pub const VM = struct {
                         try self.reportRuntimeError("Undefined variable '{s}'", .{name.text});
                         return error.UndefinedVariable;
                     }
+                },
+
+                .get_local, .long_get_local => |index| {
+                    try self.stack.push(self.stack.array[index]);
+                },
+
+                .set_local, .long_set_local => |index| {
+                    self.stack.array[index] = self.stack.peek(0);
                 },
 
                 .negate => {

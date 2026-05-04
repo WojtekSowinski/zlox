@@ -36,9 +36,13 @@ pub fn disassembleInstruction(instruction: bytecode.Instruction, chunk: bytecode
         inline .def_global,
         .get_global,
         .set_global,
+        .get_local,
+        .set_local,
         .long_def_global,
         .long_get_global,
         .long_set_global,
+        .long_get_local,
+        .long_set_local,
         => |index, tag| {
             const opName = comptime toUpper(@tagName(tag));
             std.debug.print(opName ++ (" " ** (21 - opName.len)) ++ "{d:0>4}\n", .{index});

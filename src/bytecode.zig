@@ -19,6 +19,12 @@ pub const Instruction = union(enum) {
     long_get_global: u24,
     long_set_global: u24,
 
+    set_local: u8,
+    get_local: u8,
+
+    long_set_local: u24,
+    long_get_local: u24,
+
     negate,
     add,
     multiply,
@@ -45,8 +51,20 @@ pub const Instruction = union(enum) {
 
     pub fn size(self: Instruction) usize {
         return switch (self) {
-            .constant, .def_global, .get_global, .set_global => 2,
-            .long_constant, .long_def_global, .long_get_global, .long_set_global => 4,
+            .constant,
+            .def_global,
+            .get_global,
+            .set_global,
+            .get_local,
+            .set_local,
+            => 2,
+            .long_constant,
+            .long_def_global,
+            .long_get_global,
+            .long_set_global,
+            .long_get_local,
+            .long_set_local,
+            => 4,
             else => 1,
         };
     }
@@ -54,11 +72,23 @@ pub const Instruction = union(enum) {
     pub fn readFrom(ptr: [*]const u8) Self {
         const opcode: OpCode = @enumFromInt(ptr[0]);
         switch (opcode) {
-            inline .long_constant, .long_def_global, .long_get_global, .long_set_global => |tag| {
+            inline .long_constant,
+            .long_def_global,
+            .long_get_global,
+            .long_set_global,
+            .long_get_local,
+            .long_set_local,
+            => |tag| {
                 const index = std.mem.bytesToValue(u24, ptr[1..4]);
                 return @unionInit(Self, @tagName(tag), index);
             },
-            inline .constant, .def_global, .get_global, .set_global => |tag| {
+            inline .constant,
+            .def_global,
+            .get_global,
+            .set_global,
+            .get_local,
+            .set_local,
+            => |tag| {
                 const index = ptr[1];
                 return @unionInit(Self, @tagName(tag), index);
             },
@@ -110,11 +140,23 @@ pub const Chunk = struct {
         try self.write(@intFromEnum(instruction));
         errdefer self.pop();
         switch (instruction) {
-            .constant, .def_global, .get_global, .set_global => |index| {
+            .constant,
+            .def_global,
+            .get_global,
+            .set_global,
+            .get_local,
+            .set_local,
+            => |index| {
                 try self.write(index);
                 errdefer self.pop();
             },
-            .long_constant, .long_def_global, .long_get_global, .long_set_global => |index| {
+            .long_constant,
+            .long_def_global,
+            .long_get_global,
+            .long_set_global,
+            .long_get_local,
+            .long_set_local,
+            => |index| {
                 const bytes = std.mem.toBytes(index);
                 if (comptime builtin.cpu.arch.endian() == .little) {
                     try self.writeMany(bytes[0..3]);
