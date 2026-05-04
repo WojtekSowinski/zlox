@@ -20,8 +20,7 @@ pub fn main(init: std.process.Init) !void {
     var stdin_reader = std.Io.File.stdin().readerStreaming(io, &stdin_buff);
     var stdin = &stdin_reader.interface;
 
-    var mainVM = vm.VM{};
-    try mainVM.init(init.gpa);
+    var mainVM = try vm.VM.init(init.gpa, stdin, stdout, stderr);
     defer mainVM.deinit();
     mainVM.input_reader = stdin;
     mainVM.output_writer = stdout;

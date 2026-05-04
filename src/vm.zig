@@ -74,32 +74,41 @@ pub const GlobalVarStore = struct {
     }
 };
 
-// TODO: define a default reader and writer
-
 pub const VM = struct {
     chunk: *Chunk = undefined,
     ip: [*]u8 = undefined,
 
-    stack: Stack(Value) = undefined,
-    globals: GlobalVarStore = undefined,
+    stack: Stack(Value),
+    globals: GlobalVarStore,
 
-    input_reader: *std.Io.Reader = undefined,
-    output_writer: *std.Io.Writer = undefined,
-    error_writer: *std.Io.Writer = undefined,
+    input_reader: *std.Io.Reader,
+    output_writer: *std.Io.Writer,
+    error_writer: *std.Io.Writer,
 
-    gc: LoxGarbageCollector = undefined,
+    gc: LoxGarbageCollector,
 
     const Self = @This();
 
     pub fn init(
-        self: *Self,
         allocator: std.mem.Allocator,
-    ) !void {
-        self.gc = try LoxGarbageCollector.init(allocator);
-        errdefer self.gc.deinit();
-        self.globals = try .init(allocator);
-        errdefer self.globals.deinit();
-        self.stack = try .init(self.gc.allocator(), 256);
+        input_source: *std.Io.Reader,
+        output_sink: *std.Io.Writer,
+        error_sink: *std.Io.Writer,
+    ) !Self {
+        var foo: VM = .{
+            .gc = undefined,
+            .globals = undefined,
+            .stack = undefined,
+            .input_reader = input_source,
+            .output_writer = output_sink,
+            .error_writer = error_sink,
+        };
+        foo.gc = try LoxGarbageCollector.init(allocator);
+        errdefer foo.gc.deinit();
+        foo.globals = try GlobalVarStore.init(allocator);
+        errdefer foo.globals.deinit();
+        foo.stack = try Stack(Value).init(allocator, 256);
+        return foo;
     }
 
     pub fn interpret(self: *Self, source_code: []const u8) !void {
