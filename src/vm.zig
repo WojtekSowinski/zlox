@@ -63,7 +63,7 @@ pub const VM = struct {
                 debug.disassembleInstruction(instruction, self.chunk.*);
             }
             self.ip += instruction.size();
-            execute: switch (instruction) {
+            switch (instruction) {
                 .ret => {
                     return;
                 },
@@ -72,30 +72,41 @@ pub const VM = struct {
                     try self.output_writer.writeByte('\n');
                 },
                 .pop => _ = self.stack.pop(),
+
                 .true => try self.stack.push(.{ .boolean = true }),
                 .false => try self.stack.push(.{ .boolean = false }),
                 .nil => try self.stack.push(.nil),
-                .constant => |index| continue :execute .{ .long_con = index },
-                .long_con => |index| {
+
+                .constant, .long_constant => |index| {
                     const constant: Value = self.readConstant(index);
                     try self.stack.push(constant);
                 },
-                .define_global => |index| continue :execute .{ .long_define_global = index },
-                .long_define_global => |index| {
+
+                .def_global, .long_def_global => |index| {
                     const name = self.readString(index);
-                    try self.globals.put(name, self.stack.peek(0), self.gc.allocator());
+                    _ = try self.globals.put(name, self.stack.peek(0), self.gc.allocator());
                     _ = self.stack.pop();
                 },
-                .get_global => |index| continue :execute .{ .long_get_global = index },
-                .long_get_global => |index| {
+
+                .get_global, .long_get_global => |index| {
                     const name = self.readString(index);
                     const val = self.globals.get(name);
                     if (val == null) {
-                        try self.reportRuntimeError("Undefined variable {s}", .{name.text});
-                        return error.UndefinedValue;
+                        try self.reportRuntimeError("Undefined variable '{s}'", .{name.text});
+                        return error.UndefinedVariable;
                     }
                     try self.stack.push(val.?);
                 },
+
+                .set_global, .long_set_global => |index| {
+                    const name = self.readString(index);
+                    if (try self.globals.put(name, self.stack.peek(0), self.gc.allocator())) {
+                        _ = self.globals.delete(name);
+                        try self.reportRuntimeError("Undefined variable '{s}'", .{name.text});
+                        return error.UndefinedVariable;
+                    }
+                },
+
                 .negate => {
                     switch (self.stack.peek(0)) {
                         .number => |n| self.stack.swap(.{ .number = -n }),
@@ -106,6 +117,7 @@ pub const VM = struct {
                     }
                 },
                 .not => self.stack.swap(.{ .boolean = self.stack.peek(0).isFalsey() }),
+
                 .add => {
                     const right = self.stack.peek(0);
                     const left = self.stack.peek(1);
@@ -124,6 +136,7 @@ pub const VM = struct {
                 .subtract => try self.runBinaryOp(.number, subtract),
                 .multiply => try self.runBinaryOp(.number, multiply),
                 .divide => try self.runBinaryOp(.number, divide),
+
                 .equal => {
                     const right = self.stack.pop();
                     const left = self.stack.peek(0);
@@ -134,6 +147,7 @@ pub const VM = struct {
                     const left = self.stack.peek(0);
                     self.stack.swap(.{ .boolean = !left.equals(right) });
                 },
+
                 .less_than => try self.runBinaryOp(.boolean, less),
                 .greater_than => try self.runBinaryOp(.boolean, greater),
                 .less_or_equal => try self.runBinaryOp(.boolean, less_eq),
@@ -171,7 +185,7 @@ pub const VM = struct {
             _ = self.stack.pop();
             self.stack.swap(@unionInit(
                 Value,
-                std.enums.tagName(LoxType, return_type).?,
+                @tagName(return_type),
                 op(left.number, right.number),
             ));
         } else {

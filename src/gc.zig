@@ -52,7 +52,7 @@ pub fn takeString(self: *Self, text: []const u8) !*String {
     const string: *String = @fieldParentPtr("obj", obj);
     string.text = text;
     string.hash = hashString(text);
-    try self.string_pool.put(text, string, self.base_allocator);
+    _ = try self.string_pool.put(text, string, self.base_allocator);
     return string;
 }
 
@@ -63,7 +63,7 @@ pub fn borrowString(self: *Self, text: []const u8) !*String {
     const string: *String = @fieldParentPtr("obj", obj);
     string.text = text;
     string.hash = hashString(text);
-    try self.string_pool.put(text, string, self.base_allocator);
+    _ = try self.string_pool.put(text, string, self.base_allocator);
     return string;
 }
 

@@ -4,6 +4,8 @@ const Scanner = scan.Scanner;
 const Token = scan.Token;
 const TokenType = scan.TokenType;
 const bytecode = @import("bytecode.zig");
+const OpCode = bytecode.OpCode;
+const Instruction = bytecode.Instruction;
 const Value = @import("value.zig").Value;
 const debug = @import("debug.zig");
 const GarbageCollector = @import("gc.zig");
@@ -42,8 +44,8 @@ const Precedence = enum {
 };
 
 const ParserRule = struct {
-    prefix: ?*const fn (*Self) anyerror!void,
-    infix: ?*const fn (*Self) anyerror!void,
+    prefix: ?*const fn (*Self, bool) anyerror!void,
+    infix: ?*const fn (*Self, bool) anyerror!void,
     precedence: Precedence,
 };
 
@@ -164,16 +166,6 @@ fn consume(self: *Self, expected: TokenType, err_msg: []const u8) !void {
     try self.errorAtCurrent(err_msg);
 }
 
-fn statement(self: *Self) !void {
-    if (try self.match(.kw_var)) {
-        try self.varDeclaration();
-    } else {
-        try self.command();
-    }
-
-    if (self.parser.panic_mode) try self.synchronize();
-}
-
 fn synchronize(self: *Self) !void {
     self.parser.panic_mode = false;
     while (self.parser.current.type != .eof) {
@@ -188,10 +180,29 @@ fn synchronize(self: *Self) !void {
             .kw_print,
             .kw_return,
             => return,
-            else => {},
+            else => continue,
         }
         try self.advance();
     }
+}
+
+inline fn useConstantsArray(self: *Self, comptime short: OpCode, comptime long: OpCode, index: usize) !void {
+    std.debug.assert(index <= std.math.maxInt(u24));
+    const instruction = if (index <= std.math.maxInt(u8))
+        @unionInit(Instruction, @tagName(short), @intCast(index))
+    else
+        @unionInit(Instruction, @tagName(long), @intCast(index));
+    try self.emitInstruction(instruction, self.parser.previous.line);
+}
+
+fn statement(self: *Self) !void {
+    if (try self.match(.kw_var)) {
+        try self.varDeclaration();
+    } else {
+        try self.command();
+    }
+
+    if (self.parser.panic_mode) try self.synchronize();
 }
 
 fn command(self: *Self) !void {
@@ -227,12 +238,7 @@ fn makeIdentifier(self: *Self, token: Token) !usize {
 }
 
 fn defineVariable(self: *Self, id_index: usize) !void {
-    std.debug.assert(id_index <= std.math.maxInt(u24));
-    if (id_index <= std.math.maxInt(u8)) {
-        try self.emitInstruction(.{ .define_global = @intCast(id_index) }, self.parser.previous.line);
-    } else {
-        try self.emitInstruction(.{ .long_define_global = @intCast(id_index) }, self.parser.previous.line);
-    }
+    try self.useConstantsArray(.def_global, .long_def_global, id_index);
 }
 
 fn printStatement(self: *Self) !void {
@@ -259,16 +265,20 @@ fn parsePrecedence(self: *Self, precedence: Precedence) !void {
         return;
     }
 
-    try prefix_rule.?(self);
+    const can_assign = precedence.isGreaterThan(.assignment);
+    try prefix_rule.?(self, can_assign);
 
     while (precedence.isGreaterThan(getRule(self.parser.current.type).precedence)) {
         try self.advance();
         const infix_rule = getRule(self.parser.previous.type).infix;
-        try infix_rule.?(self);
+        try infix_rule.?(self, can_assign);
     }
+
+    if (can_assign and try self.match(.equal)) try self.errorAtPrevious("Invalid assignment target.");
 }
 
-fn unary(self: *Self) !void {
+fn unary(self: *Self, can_assign: bool) !void {
+    _ = can_assign;
     const operator = self.parser.previous;
 
     try self.parsePrecedence(.unary);
@@ -280,11 +290,12 @@ fn unary(self: *Self) !void {
     }
 }
 
-fn binary(self: *Self) !void {
+fn binary(self: *Self, can_assign: bool) !void {
+    _ = can_assign;
     const operator = self.parser.previous;
     const rule = getRule(operator.type);
     try self.parsePrecedence(@enumFromInt(@intFromEnum(rule.precedence) + 1));
-    const instruction: bytecode.Instruction = switch (operator.type) {
+    const instruction: Instruction = switch (operator.type) {
         .plus => .add,
         .minus => .subtract,
         .star => .multiply,
@@ -300,9 +311,10 @@ fn binary(self: *Self) !void {
     try self.emitInstruction(instruction, operator.line);
 }
 
-fn literal(self: *Self) !void {
+fn literal(self: *Self, can_assign: bool) !void {
+    _ = can_assign;
     const token = self.parser.previous;
-    const opcode: bytecode.Instruction = switch (token.type) {
+    const opcode: Instruction = switch (token.type) {
         .kw_nil => .nil,
         .kw_true => .true,
         .kw_false => .false,
@@ -311,31 +323,33 @@ fn literal(self: *Self) !void {
     try self.emitInstruction(opcode, token.line);
 }
 
-fn variable(self: *Self) !void {
-    try self.emitVariable(self.parser.previous);
+fn variable(self: *Self, can_assign: bool) !void {
+    try self.emitVariable(self.parser.previous, can_assign);
 }
 
-fn emitVariable(self: *Self, name: Token) !void {
+fn emitVariable(self: *Self, name: Token, can_assign: bool) !void {
     const arg = try self.makeIdentifier(name);
-    std.debug.assert(arg <= std.math.maxInt(u24));
-    if (arg <= std.math.maxInt(u8)) {
-        try self.emitInstruction(.{ .get_global = @intCast(arg) }, self.parser.previous.line);
+    if (can_assign and try self.match(.equal)) {
+        try self.expression();
+        try self.useConstantsArray(.set_global, .long_set_global, arg);
     } else {
-        try self.emitInstruction(.{ .long_get_global = @intCast(arg) }, self.parser.previous.line);
+        try self.useConstantsArray(.get_global, .long_get_global, arg);
     }
 }
 
-fn string(self: *Self) !void {
+fn string(self: *Self, can_assign: bool) !void {
+    _ = can_assign;
     const lexeme = self.parser.previous.lexeme;
     const text = lexeme[1 .. lexeme.len - 1];
     const obj = &((try self.gc.borrowString(text)).obj);
     errdefer self.gc.deleteObject(obj);
-    _ = try self.emitConstant(.{ .object = obj });
+    try self.emitConstant(.{ .object = obj });
 }
 
-fn number(self: *Self) !void {
+fn number(self: *Self, can_assign: bool) !void {
+    _ = can_assign;
     const value = std.fmt.parseFloat(f64, self.parser.previous.lexeme) catch unreachable;
-    _ = try self.emitConstant(.{ .number = value });
+    try self.emitConstant(.{ .number = value });
 }
 
 fn makeConstant(self: *Self, value: Value) !usize {
@@ -344,17 +358,13 @@ fn makeConstant(self: *Self, value: Value) !usize {
     return index;
 }
 
-fn emitConstant(self: *Self, value: Value) !usize {
+fn emitConstant(self: *Self, value: Value) !void {
     const index = try self.makeConstant(value);
-    if (index > std.math.maxInt(u8)) {
-        try self.emitInstruction(.{ .long_con = @intCast(index) }, self.parser.previous.line);
-    } else {
-        try self.emitInstruction(.{ .constant = @intCast(index) }, self.parser.previous.line);
-    }
-    return index;
+    return try self.useConstantsArray(.constant, .long_constant, index);
 }
 
-fn grouping(self: *Self) !void {
+fn grouping(self: *Self, can_assign: bool) !void {
+    _ = can_assign;
     try self.expression();
     try self.consume(.right_paren, "Expected ')' after expression.");
 }
@@ -370,7 +380,7 @@ inline fn emitReturn(self: *Self) !void {
 
 inline fn emitInstruction(
     self: *Self,
-    instruction: bytecode.Instruction,
+    instruction: Instruction,
     line: usize,
 ) !void {
     try self.currentChunk().writeInstruction(instruction, line);

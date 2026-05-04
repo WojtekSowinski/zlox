@@ -22,40 +22,24 @@ pub fn disassembleChunk(chunk: bytecode.Chunk, name: []const u8) void {
 
 pub fn disassembleInstruction(instruction: bytecode.Instruction, chunk: bytecode.Chunk) void {
     switch (instruction) {
-        .constant => |index| {
-            std.debug.print("CONSTANT             {d:0>4} '", .{index});
-            logValue(chunk.constants.items[index]);
-            std.debug.print("'\n", .{});
-        },
-        .long_con => |index| {
-            std.debug.print("LONG_CONSTANT        {d:0>4} '", .{index});
-            logValue(chunk.constants.items[index]);
-            std.debug.print("'\n", .{});
-        },
-        .define_global => |index| {
-            std.debug.print("DEFINE_GLOBAL        {d:0>4} '", .{index});
-            logValue(chunk.constants.items[index]);
-            std.debug.print("'\n", .{});
-        },
-        .long_define_global => |index| {
-            std.debug.print("LONG_DEFINE_GLOBAL   {d:0>4} '", .{index});
-            logValue(chunk.constants.items[index]);
-            std.debug.print("'\n", .{});
-        },
-        .get_global => |index| {
-            std.debug.print("GET_GLOBAL        {d:0>4} '", .{index});
-            logValue(chunk.constants.items[index]);
-            std.debug.print("'\n", .{});
-        },
-        .long_get_global => |index| {
-            std.debug.print("LONG_GET_GLOBAL   {d:0>4} '", .{index});
-            logValue(chunk.constants.items[index]);
-            std.debug.print("'\n", .{});
-        },
         .ret => std.debug.print("RETURN\n", .{}),
+        inline .constant,
+        .def_global,
+        .get_global,
+        .set_global,
+        .long_constant,
+        .long_def_global,
+        .long_get_global,
+        .long_set_global,
+        => |index, tag| {
+            const opName = comptime toUpper(@tagName(tag));
+            std.debug.print(opName ++ (" " ** (21 - opName.len)) ++ "{d:0>4} '", .{index});
+            logValue(chunk.constants.items[index]);
+            std.debug.print("'\n", .{});
+        },
         inline else => |_, tag| {
-            const opName = comptime std.enums.tagName(bytecode.OpCode, tag).?;
-            std.debug.print(comptime (toUpper(opName) ++ "\n"), .{});
+            const opName = comptime toUpper(@tagName(tag));
+            std.debug.print(opName ++ "\n", .{});
         },
     }
 }
@@ -69,7 +53,6 @@ fn toUpper(comptime str: []const u8) [str.len]u8 {
 }
 
 pub fn logStack(vm: VM) void {
-    std.debug.print(" " ** 10, .{});
     var ptr: [*]Value = vm.stack.items.ptr;
     while (ptr != vm.stack.top) : (ptr += 1) {
         std.debug.print("[ ", .{});

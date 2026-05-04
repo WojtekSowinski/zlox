@@ -8,41 +8,45 @@ const HashTable = @import("hash_table.zig").HashTable;
 pub const OpCode = std.meta.Tag(Instruction);
 
 pub const Instruction = union(enum) {
-    ret,
     constant: u8,
-    long_con: u24,
-    define_global: u8,
-    long_define_global: u24,
+    long_constant: u24,
+
+    def_global: u8,
     get_global: u8,
+    set_global: u8,
+
+    long_def_global: u24,
     long_get_global: u24,
+    long_set_global: u24,
+
     negate,
     add,
     multiply,
     subtract,
     divide,
+    not,
+
     nil,
     true,
     false,
-    not,
+
     equal,
     not_equal,
     less_than,
     greater_than,
     less_or_equal,
     greater_or_equal,
+
     print,
     pop,
+    ret,
 
     const Self = @This();
 
     pub fn size(self: Instruction) usize {
         return switch (self) {
-            .constant => 2,
-            .long_con => 4,
-            .define_global => 2,
-            .long_define_global => 4,
-            .get_global => 2,
-            .long_get_global => 4,
+            .constant, .def_global, .get_global, .set_global => 2,
+            .long_constant, .long_def_global, .long_get_global, .long_set_global => 4,
             else => 1,
         };
     }
@@ -50,29 +54,13 @@ pub const Instruction = union(enum) {
     pub fn readFrom(ptr: [*]const u8) Self {
         const opcode: OpCode = @enumFromInt(ptr[0]);
         switch (opcode) {
-            .constant => {
-                const valIndex = ptr[1];
-                return .{ .constant = valIndex };
+            inline .long_constant, .long_def_global, .long_get_global, .long_set_global => |tag| {
+                const index = std.mem.bytesToValue(u24, ptr[1..4]);
+                return @unionInit(Self, @tagName(tag), index);
             },
-            .long_con => {
-                const valIndex = std.mem.bytesToValue(u24, ptr[1..4]);
-                return .{ .long_con = valIndex };
-            },
-            .define_global => {
-                const idIndex = ptr[1];
-                return .{ .define_global = idIndex };
-            },
-            .long_define_global => {
-                const idIndex = std.mem.bytesToValue(u24, ptr[1..4]);
-                return .{ .long_define_global = idIndex };
-            },
-            .get_global => {
-                const idIndex = ptr[1];
-                return .{ .get_global = idIndex };
-            },
-            .long_get_global => {
-                const idIndex = std.mem.bytesToValue(u24, ptr[1..4]);
-                return .{ .long_get_global = idIndex };
+            inline .constant, .def_global, .get_global, .set_global => |tag| {
+                const index = ptr[1];
+                return @unionInit(Self, @tagName(tag), index);
             },
             inline else => |tag| {
                 return @unionInit(Self, @tagName(tag), {});
@@ -121,12 +109,12 @@ pub const Chunk = struct {
     ) !void {
         try self.write(@intFromEnum(instruction));
         errdefer self.pop();
-        write_operand: switch (instruction) {
-            .constant => |index| {
+        switch (instruction) {
+            .constant, .def_global, .get_global, .set_global => |index| {
                 try self.write(index);
                 errdefer self.pop();
             },
-            .long_con => |index| {
+            .long_constant, .long_def_global, .long_get_global, .long_set_global => |index| {
                 const bytes = std.mem.toBytes(index);
                 if (comptime builtin.cpu.arch.endian() == .little) {
                     try self.writeMany(bytes[0..3]);
@@ -135,10 +123,6 @@ pub const Chunk = struct {
                 }
                 errdefer for (0..3) |_| self.pop();
             },
-            .define_global => |index| continue :write_operand .{ .constant = index },
-            .long_define_global => |index| continue :write_operand .{ .long_con = index },
-            .get_global => |index| continue :write_operand .{ .constant = index },
-            .long_get_global => |index| continue :write_operand .{ .long_con = index },
             else => {},
         }
         try self.lines.append(line, instruction.size());

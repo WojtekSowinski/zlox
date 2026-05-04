@@ -16,7 +16,7 @@ pub fn HashTable(Key: type, Value: type, hash: fn (Key) u32, eq: fn (Key, Key) b
             return initCapacity(allocator, 8);
         }
 
-        fn initCapacity(allocator: Allocator, capacity: usize) !Self {
+        pub fn initCapacity(allocator: Allocator, capacity: usize) !Self {
             const keys = try allocator.alloc(?Key, capacity);
             errdefer allocator.free(keys);
             const values = try allocator.alloc(Value, capacity);
@@ -32,10 +32,10 @@ pub fn HashTable(Key: type, Value: type, hash: fn (Key) u32, eq: fn (Key, Key) b
             self.tombstones.deinit(allocator);
         }
 
-        pub fn put(self: *Self, key: Key, value: Value, allocator: Allocator) !void {
+        pub fn put(self: *Self, key: Key, value: Value, allocator: Allocator) !bool {
             if (self.count >= self.maxLoad()) try self.grow(allocator);
             const index = self.findIndex(key);
-            self.insertAt(key, value, index);
+            return self.insertAt(key, value, index);
         }
 
         pub fn get(self: Self, key: Key) ?Value {
@@ -60,18 +60,20 @@ pub fn HashTable(Key: type, Value: type, hash: fn (Key) u32, eq: fn (Key, Key) b
 
         fn copyAll(from: Self, to: *Self) void {
             for (from.keys, from.values) |key, value| {
-                if (key) |k| to.insertAt(k, value, to.findIndex(k));
+                if (key) |k| _ = to.insertAt(k, value, to.findIndex(k));
             }
         }
 
-        pub fn insertAt(self: *Self, key: Key, value: Value, index: usize) void {
-            if (self.keys[index] == null and !self.tombstones.isSet(index)) self.count += 1;
+        fn insertAt(self: *Self, key: Key, value: Value, index: usize) bool {
+            const was_absent = self.keys[index] == null;
+            if (was_absent and !self.tombstones.isSet(index)) self.count += 1;
             self.keys[index] = key;
             self.values[index] = value;
             self.tombstones.unset(index);
+            return was_absent;
         }
 
-        pub fn findIndex(self: Self, key: Key) usize {
+        fn findIndex(self: Self, key: Key) usize {
             var index = hash(key) & (self.keys.len - 1);
             var last_tombstone: ?usize = null;
             while (true) {
