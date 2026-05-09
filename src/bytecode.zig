@@ -7,23 +7,33 @@ const HashTable = @import("hash_table.zig").HashTable;
 
 pub const OpCode = std.meta.Tag(Instruction);
 
+pub const ShortIndex = u8;
+pub const LongIndex = u24;
+pub const MAX_SHORT_INDEX = std.math.maxInt(ShortIndex);
+pub const MAX_LONG_INDEX = std.math.maxInt(LongIndex);
+
+pub const JumpDistance = u16;
+pub const JUMP_DISTANCE_SIZE = 2;
+pub const MAX_JUMP = std.math.maxInt(JumpDistance);
+
 pub const Instruction = union(enum) {
-    constant: u8,
-    long_constant: u24,
+    constant: ShortIndex,
+    long_constant: LongIndex,
 
-    def_global: u8,
-    get_global: u8,
-    set_global: u8,
+    def_global: ShortIndex,
+    get_global: ShortIndex,
+    set_global: ShortIndex,
+    long_def_global: LongIndex,
+    long_get_global: LongIndex,
+    long_set_global: LongIndex,
 
-    long_def_global: u24,
-    long_get_global: u24,
-    long_set_global: u24,
+    set_local: ShortIndex,
+    get_local: ShortIndex,
+    long_set_local: LongIndex,
+    long_get_local: LongIndex,
 
-    set_local: u8,
-    get_local: u8,
-
-    long_set_local: u24,
-    long_get_local: u24,
+    jump: JumpDistance,
+    jump_if_falsey: JumpDistance,
 
     negate,
     add,
@@ -65,6 +75,9 @@ pub const Instruction = union(enum) {
             .long_get_local,
             .long_set_local,
             => 4,
+            .jump,
+            .jump_if_falsey,
+            => 3,
             else => 1,
         };
     }
@@ -79,7 +92,7 @@ pub const Instruction = union(enum) {
             .long_get_local,
             .long_set_local,
             => |tag| {
-                const index = std.mem.bytesToValue(u24, ptr[1..4]);
+                const index = (@as(LongIndex, ptr[1]) << 16) | (@as(LongIndex, ptr[2]) << 8) | ptr[3];
                 return @unionInit(Self, @tagName(tag), index);
             },
             inline .constant,
@@ -91,6 +104,12 @@ pub const Instruction = union(enum) {
             => |tag| {
                 const index = ptr[1];
                 return @unionInit(Self, @tagName(tag), index);
+            },
+            inline .jump,
+            .jump_if_falsey,
+            => |tag| {
+                const distance = (@as(JumpDistance, ptr[1]) << 8) | ptr[2];
+                return @unionInit(Self, @tagName(tag), distance);
             },
             inline else => |tag| {
                 return @unionInit(Self, @tagName(tag), {});
@@ -148,7 +167,6 @@ pub const Chunk = struct {
             .set_local,
             => |index| {
                 try self.write(index);
-                errdefer self.pop();
             },
             .long_constant,
             .long_def_global,
@@ -157,16 +175,21 @@ pub const Chunk = struct {
             .long_get_local,
             .long_set_local,
             => |index| {
-                const bytes = std.mem.toBytes(index);
-                if (comptime builtin.cpu.arch.endian() == .little) {
-                    try self.writeMany(bytes[0..3]);
-                } else {
-                    try self.writeMany(bytes[1..]);
-                }
-                errdefer for (0..3) |_| self.pop();
+                const new_bytes = try self.code.addManyAsArray(self.allocator, 3);
+                new_bytes[0] = @truncate(index >> 16);
+                new_bytes[1] = @truncate(index >> 8);
+                new_bytes[2] = @truncate(index);
+            },
+            .jump,
+            .jump_if_falsey,
+            => |index| {
+                const new_bytes = try self.code.addManyAsArray(self.allocator, 2);
+                new_bytes[0] = @truncate(index >> 8);
+                new_bytes[1] = @truncate(index);
             },
             else => {},
         }
+        errdefer self.code.shrinkRetainingCapacity(instruction.size());
         try self.lines.append(line, instruction.size());
     }
 
@@ -174,8 +197,10 @@ pub const Chunk = struct {
         try self.code.append(self.allocator, byte);
     }
 
-    fn writeMany(self: *Self, bytes: []const u8) !void {
-        try self.code.appendSlice(self.allocator, bytes);
+    pub fn patchJump(self: *Self, jump_location: usize, distance: JumpDistance) void {
+        std.debug.assert(distance <= MAX_JUMP);
+        self.code.items[jump_location] = @truncate(distance >> 8);
+        self.code.items[jump_location + 1] = @truncate(distance);
     }
 
     fn pop(self: *Self) void {

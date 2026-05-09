@@ -291,8 +291,8 @@ inline fn emitInstructionWithIndex(
     comptime long: OpCode,
     index: usize,
 ) OOM!void {
-    std.debug.assert(index <= std.math.maxInt(u24));
-    const instruction = if (index <= std.math.maxInt(u8))
+    std.debug.assert(index <= bytecode.MAX_LONG_INDEX);
+    const instruction = if (index <= bytecode.MAX_SHORT_INDEX)
         @unionInit(Instruction, @tagName(short), @intCast(index))
     else
         @unionInit(Instruction, @tagName(long), @intCast(index));
@@ -315,6 +315,8 @@ fn command(self: *Self) CompilerError!void {
 
     if (try self.match(.kw_print)) {
         try self.printStatement();
+    } else if (try self.match(.kw_if)) {
+        try self.ifStatement();
     } else if (try self.match(.left_brace)) {
         self.scope_tracker.enterScope();
         try self.block();
@@ -330,6 +332,30 @@ fn block(self: *Self) CompilerError!void {
         try self.statement();
     }
     try self.consume(.right_brace, "Expected '}' after block.");
+}
+
+fn emitJump(self: *Self, comptime opcode: OpCode) OOM!usize {
+    const instruction = @unionInit(Instruction, @tagName(opcode), undefined);
+    try self.emitInstruction(instruction, self.parser.previous.line);
+    return self.currentChunk().length() - bytecode.JUMP_DISTANCE_SIZE;
+}
+
+fn patchJump(self: *Self, jump_location: usize) CompilerError!void {
+    const distance = self.currentChunk().length() - jump_location - bytecode.JUMP_DISTANCE_SIZE;
+    if (distance > bytecode.MAX_JUMP) try self.errorAtPrevious("Too much code to jump over.");
+    self.currentChunk().patchJump(jump_location, @intCast(distance));
+}
+
+fn ifStatement(self: *Self) CompilerError!void {
+    try self.consume(.left_paren, "Expected '(' after 'if'.");
+    try self.expression();
+    try self.consume(.right_paren, "Expected ')' after condition.");
+
+    const jump = try self.emitJump(.jump_if_falsey);
+    try self.emitInstruction(.pop, self.parser.previous.line);
+    try self.command();
+
+    try self.patchJump(jump);
 }
 
 fn varDeclaration(self: *Self) CompilerError!void {
@@ -361,7 +387,7 @@ fn declareLocal(self: *Self) CompilerError!void {
         try self.errorAtPrevious("Already a variable with this name in this scope");
     }
     const index = try self.scope_tracker.addLocal(name);
-    if (index > std.math.maxInt(u24)) try self.errorAtPrevious("Too many local variables.");
+    if (index > bytecode.MAX_LONG_INDEX) try self.errorAtPrevious("Too many local variables.");
 }
 
 fn makeIdentifier(self: *Self, token: Token) OOM!usize {
@@ -467,7 +493,7 @@ fn emitVariable(self: *Self, name: Token, can_assign: bool) CompilerError!void {
     const localIndex = self.scope_tracker.resolveLocal(name);
     switch (localIndex) {
         .found => |arg| {
-            if (arg > std.math.maxInt(u24)) try self.errorAtPrevious("Too many global variables.");
+            if (arg > bytecode.MAX_LONG_INDEX) try self.errorAtPrevious("Too many global variables.");
             try self.emitSetOrGetAtIndex(
                 [_]OpCode{ .set_local, .long_set_local, .get_local, .long_get_local },
                 arg,
@@ -476,7 +502,7 @@ fn emitVariable(self: *Self, name: Token, can_assign: bool) CompilerError!void {
         },
         .not_in_scope => {
             const arg = try self.makeIdentifier(name);
-            if (arg > std.math.maxInt(u24)) try self.errorAtPrevious("Too many global variables.");
+            if (arg > bytecode.MAX_LONG_INDEX) try self.errorAtPrevious("Too many global variables.");
             try self.emitSetOrGetAtIndex(
                 [_]OpCode{ .set_global, .long_set_global, .get_global, .long_get_global },
                 arg,
@@ -493,7 +519,7 @@ fn emitSetOrGetAtIndex(
     arg: usize,
     can_assign: bool,
 ) CompilerError!void {
-    std.debug.assert(arg <= std.math.maxInt(u24));
+    std.debug.assert(arg <= bytecode.MAX_LONG_INDEX);
     if (can_assign and try self.match(.equal)) {
         try self.expression();
         try self.emitInstructionWithIndex(opcodes[0], opcodes[1], arg);
@@ -519,7 +545,7 @@ fn number(self: *Self, can_assign: bool) CompilerError!void {
 
 fn makeConstant(self: *Self, value: Value) CompilerError!usize {
     const index = try self.currentChunk().addConstant(value);
-    if (index > std.math.maxInt(u24)) try self.errorAtPrevious("Too many constants in one chunk.");
+    if (index > bytecode.MAX_LONG_INDEX) try self.errorAtPrevious("Too many constants in one chunk.");
     return index;
 }
 

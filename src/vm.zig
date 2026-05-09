@@ -132,7 +132,7 @@ pub const VM = struct {
                 debug.disassembleInstruction(instruction, self.chunk.*);
             }
             self.ip += instruction.size();
-            switch (instruction) {
+            exec: switch (instruction) {
                 .ret => {
                     return;
                 },
@@ -228,6 +228,11 @@ pub const VM = struct {
                 .greater_than => try self.runBinaryOp(.boolean, greater),
                 .less_or_equal => try self.runBinaryOp(.boolean, less_eq),
                 .greater_or_equal => try self.runBinaryOp(.boolean, greater_eq),
+
+                .jump => |distance| self.ip += distance,
+                .jump_if_falsey => |distance| {
+                    if (self.stack.peek(0).isFalsey()) continue :exec .{ .jump = distance };
+                },
             }
         }
     }
