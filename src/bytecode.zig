@@ -37,6 +37,10 @@ pub const Instruction = union(enum) {
     jump_if_falsey: JumpDistance,
     jump_if_truthy: JumpDistance,
 
+    pop,
+    pop_many: ShortIndex,
+    long_pop_many: LongIndex,
+
     negate,
     add,
     multiply,
@@ -56,7 +60,6 @@ pub const Instruction = union(enum) {
     greater_or_equal,
 
     print,
-    pop,
     ret,
 
     const Self = @This();
@@ -69,6 +72,7 @@ pub const Instruction = union(enum) {
             .set_global,
             .get_local,
             .set_local,
+            .pop_many,
             => 2,
             .long_constant,
             .long_def_global,
@@ -76,6 +80,7 @@ pub const Instruction = union(enum) {
             .long_set_global,
             .long_get_local,
             .long_set_local,
+            .long_pop_many,
             => 4,
             .jump,
             .jump_back,
@@ -126,6 +131,7 @@ pub const Chunk = struct {
             .long_set_global,
             .long_get_local,
             .long_set_local,
+            .long_pop_many,
             => |tag| {
                 const index = (@as(LongIndex, ptr[1]) << 16) | (@as(LongIndex, ptr[2]) << 8) | ptr[3];
                 return @unionInit(Instruction, @tagName(tag), index);
@@ -136,6 +142,7 @@ pub const Chunk = struct {
             .set_global,
             .get_local,
             .set_local,
+            .pop_many,
             => |tag| {
                 const index = ptr[1];
                 return @unionInit(Instruction, @tagName(tag), index);
@@ -168,6 +175,7 @@ pub const Chunk = struct {
             .set_global,
             .get_local,
             .set_local,
+            .pop_many,
             => |index| {
                 try self.write(index);
             },
@@ -177,6 +185,7 @@ pub const Chunk = struct {
             .long_set_global,
             .long_get_local,
             .long_set_local,
+            .long_pop_many,
             => |index| {
                 const new_bytes = try self.code.addManyAsArray(self.allocator, 3);
                 new_bytes[0] = @truncate(index >> 16);

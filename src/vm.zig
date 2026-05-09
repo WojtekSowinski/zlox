@@ -139,7 +139,11 @@ pub const VM = struct {
                     try self.stack.pop().print(self.output_writer);
                     try self.output_writer.writeByte('\n');
                 },
+
                 .pop => _ = self.stack.pop(),
+                .pop_many, .long_pop_many => |amount| {
+                    self.stack.shrinkBy(amount);
+                },
 
                 .true => try self.stack.push(.{ .boolean = true }),
                 .false => try self.stack.push(.{ .boolean = false }),

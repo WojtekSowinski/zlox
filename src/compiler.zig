@@ -330,11 +330,19 @@ fn command(self: *Self) CompilerError!void {
     } else if (try self.match(.left_brace)) {
         self.scope_tracker.enterScope();
         try self.block();
-        const locals_to_pop = self.scope_tracker.exitScope();
-        for (0..locals_to_pop) |_| try self.emitInstruction(.pop, self.parser.previous.line);
+        try self.exitScope();
     } else {
         try self.expressionStatement();
     }
+}
+
+fn exitScope(self: *Self) OOM!void {
+    const locals_to_pop = self.scope_tracker.exitScope();
+    try switch (locals_to_pop) {
+        0 => return,
+        1 => self.emitInstruction(.pop, self.parser.previous.line),
+        else => self.emitInstructionWithIndex(.pop_many, .long_pop_many, locals_to_pop),
+    };
 }
 
 fn block(self: *Self) CompilerError!void {
@@ -431,8 +439,7 @@ fn forLoop(self: *Self) CompilerError!void {
         try self.emitInstruction(.pop, self.parser.previous.line);
     }
 
-    const locals_to_pop = self.scope_tracker.exitScope();
-    for (0..locals_to_pop) |_| try self.emitInstruction(.pop, self.parser.previous.line);
+    try self.exitScope();
 }
 
 fn varDeclaration(self: *Self) CompilerError!void {
