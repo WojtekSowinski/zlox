@@ -129,13 +129,12 @@ pub const VM = struct {
             const instruction = self.chunk.readInstruction(self.ip);
             if (config.trace_execution) {
                 debug.logStack(self.*);
+                std.debug.print("{d:0>4} : ", .{self.ip});
                 debug.disassembleInstruction(instruction, self.chunk.*);
             }
             self.ip += instruction.size();
-            exec: switch (instruction) {
-                .ret => {
-                    return;
-                },
+            switch (instruction) {
+                .ret => return,
                 .print => {
                     try self.stack.pop().print(self.output_writer);
                     try self.output_writer.writeByte('\n');
@@ -230,8 +229,12 @@ pub const VM = struct {
                 .greater_or_equal => try self.runBinaryOp(.boolean, greater_eq),
 
                 .jump => |distance| self.ip += distance,
+                .jump_back => |distance| self.ip -= distance,
                 .jump_if_falsey => |distance| {
-                    if (self.stack.peek(0).isFalsey()) continue :exec .{ .jump = distance };
+                    if (self.stack.peek(0).isFalsey()) self.ip += distance;
+                },
+                .jump_if_truthy => |distance| {
+                    if (self.stack.peek(0).isTruthy()) self.ip += distance;
                 },
             }
         }

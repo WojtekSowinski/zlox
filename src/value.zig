@@ -43,6 +43,10 @@ pub const Value = union(LoxType) {
         return self == .nil or (self.isBoolean() and !self.boolean);
     }
 
+    pub inline fn isTruthy(self: Self) bool {
+        return !self.isFalsey();
+    }
+
     pub inline fn equals(self: Self, other: Self) bool {
         return std.meta.eql(self, other);
     }

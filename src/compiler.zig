@@ -146,23 +146,29 @@ inline fn getRule(token_type: TokenType) ParserRule {
         for (std.enums.values(TokenType)) |token| {
             const rule = switch (token) {
                 .left_paren => .{ grouping, null, .none },
+
                 .minus => .{ unary, binary, .sum },
                 .plus => .{ null, binary, .sum },
                 .slash => .{ null, binary, .product },
                 .star => .{ null, binary, .product },
-                .number => .{ number, null, .none },
-                .string => .{ string, null, .none },
-                .identifier => .{ variable, null, .none },
-                .kw_nil => .{ literal, null, .none },
-                .kw_true => .{ literal, null, .none },
-                .kw_false => .{ literal, null, .none },
-                .bang => .{ unary, null, .none },
+
                 .equal_equal => .{ null, binary, .equality },
                 .bang_equal => .{ null, binary, .equality },
                 .less => .{ null, binary, .comparison },
                 .greater => .{ null, binary, .comparison },
                 .less_equal => .{ null, binary, .comparison },
                 .greater_equal => .{ null, binary, .comparison },
+
+                .bang => .{ unary, null, .none },
+                .kw_and => .{ null, andOperator, .conjunction },
+                .kw_or => .{ null, orOperator, .disjunction },
+
+                .number => .{ number, null, .none },
+                .string => .{ string, null, .none },
+                .identifier => .{ variable, null, .none },
+                .kw_nil => .{ literal, null, .none },
+                .kw_true => .{ literal, null, .none },
+                .kw_false => .{ literal, null, .none },
                 else => .{ null, null, .none },
             };
             rules[@intFromEnum(token)] = .{
@@ -317,6 +323,10 @@ fn command(self: *Self) CompilerError!void {
         try self.printStatement();
     } else if (try self.match(.kw_if)) {
         try self.ifStatement();
+    } else if (try self.match(.kw_while)) {
+        try self.whileLoop();
+    } else if (try self.match(.kw_for)) {
+        try self.forLoop();
     } else if (try self.match(.left_brace)) {
         self.scope_tracker.enterScope();
         try self.block();
@@ -346,16 +356,83 @@ fn patchJump(self: *Self, jump_location: usize) CompilerError!void {
     self.currentChunk().patchJump(jump_location, @intCast(distance));
 }
 
+fn emitLoopBackTo(self: *Self, target: usize) CompilerError!void {
+    const distance = self.currentChunk().length() - target + bytecode.JUMP_DISTANCE_SIZE + @sizeOf(OpCode);
+    if (distance > bytecode.MAX_JUMP) try self.errorAtPrevious("Loop body too large.");
+    try self.emitInstruction(.{ .jump_back = @intCast(distance) }, self.parser.previous.line);
+}
+
 fn ifStatement(self: *Self) CompilerError!void {
     try self.consume(.left_paren, "Expected '(' after 'if'.");
     try self.expression();
     try self.consume(.right_paren, "Expected ')' after condition.");
 
-    const jump = try self.emitJump(.jump_if_falsey);
+    const then_jump = try self.emitJump(.jump_if_falsey);
     try self.emitInstruction(.pop, self.parser.previous.line);
     try self.command();
 
-    try self.patchJump(jump);
+    const else_jump = try self.emitJump(.jump);
+    try self.patchJump(then_jump);
+    try self.emitInstruction(.pop, self.parser.previous.line);
+    if (try self.match(.kw_else)) try self.command();
+    try self.patchJump(else_jump);
+}
+
+fn whileLoop(self: *Self) CompilerError!void {
+    const loop_start = self.currentChunk().length();
+    try self.consume(.left_paren, "Expected '(' after 'while'.");
+    try self.expression();
+    try self.consume(.right_paren, "Expected ')' after condition.");
+
+    const exit_jump = try self.emitJump(.jump_if_falsey);
+    try self.emitInstruction(.pop, self.parser.previous.line);
+    try self.command();
+    try self.emitLoopBackTo(loop_start);
+
+    try self.patchJump(exit_jump);
+    try self.emitInstruction(.pop, self.parser.previous.line);
+}
+
+fn forLoop(self: *Self) CompilerError!void {
+    self.scope_tracker.enterScope();
+
+    try self.consume(.left_paren, "Expected '(' after 'for'.");
+
+    if (try self.match(.semicolon)) {} else if (try self.match(.kw_var)) {
+        try self.varDeclaration();
+    } else {
+        try self.expressionStatement();
+    }
+
+    const loop_start = self.currentChunk().length();
+    var exit_jump: ?usize = null;
+    if (!try self.match(.semicolon)) {
+        try self.expression();
+        try self.consume(.semicolon, "Expected ';' after loop condition.");
+        exit_jump = try self.emitJump(.jump_if_falsey);
+        try self.emitInstruction(.pop, self.parser.previous.line);
+    }
+
+    const jump_to_body = try self.emitJump(.jump);
+    const increment_start = self.currentChunk().length();
+
+    if (!try self.match(.right_paren)) {
+        try self.expression();
+        try self.consume(.right_paren, "Expected ')' after for clauses.");
+        try self.emitInstruction(.pop, self.parser.previous.line);
+        try self.emitLoopBackTo(loop_start);
+    }
+
+    try self.patchJump(jump_to_body);
+    try self.command();
+    try self.emitLoopBackTo(increment_start);
+    if (exit_jump) |ej| {
+        try self.patchJump(ej);
+        try self.emitInstruction(.pop, self.parser.previous.line);
+    }
+
+    const locals_to_pop = self.scope_tracker.exitScope();
+    for (0..locals_to_pop) |_| try self.emitInstruction(.pop, self.parser.previous.line);
 }
 
 fn varDeclaration(self: *Self) CompilerError!void {
@@ -526,6 +603,22 @@ fn emitSetOrGetAtIndex(
     } else {
         try self.emitInstructionWithIndex(opcodes[2], opcodes[3], arg);
     }
+}
+
+fn andOperator(self: *Self, can_assign: bool) CompilerError!void {
+    _ = can_assign;
+    const end_jump = try self.emitJump(.jump_if_falsey);
+    try self.emitInstruction(.pop, self.parser.previous.line);
+    try self.parsePrecedence(.conjunction);
+    try self.patchJump(end_jump);
+}
+
+fn orOperator(self: *Self, can_assign: bool) CompilerError!void {
+    _ = can_assign;
+    const end_jump = try self.emitJump(.jump_if_truthy);
+    try self.emitInstruction(.pop, self.parser.previous.line);
+    try self.parsePrecedence(.disjunction);
+    try self.patchJump(end_jump);
 }
 
 fn string(self: *Self, can_assign: bool) CompilerError!void {

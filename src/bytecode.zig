@@ -33,7 +33,9 @@ pub const Instruction = union(enum) {
     long_get_local: LongIndex,
 
     jump: JumpDistance,
+    jump_back: JumpDistance,
     jump_if_falsey: JumpDistance,
+    jump_if_truthy: JumpDistance,
 
     negate,
     add,
@@ -76,7 +78,9 @@ pub const Instruction = union(enum) {
             .long_set_local,
             => 4,
             .jump,
+            .jump_back,
             .jump_if_falsey,
+            .jump_if_truthy,
             => 3,
             else => 1,
         };
@@ -137,7 +141,9 @@ pub const Chunk = struct {
                 return @unionInit(Instruction, @tagName(tag), index);
             },
             inline .jump,
+            .jump_back,
             .jump_if_falsey,
+            .jump_if_truthy,
             => |tag| {
                 const distance = (@as(JumpDistance, ptr[1]) << 8) | ptr[2];
                 return @unionInit(Instruction, @tagName(tag), distance);
@@ -178,7 +184,9 @@ pub const Chunk = struct {
                 new_bytes[2] = @truncate(index);
             },
             .jump,
+            .jump_back,
             .jump_if_falsey,
+            .jump_if_truthy,
             => |index| {
                 const new_bytes = try self.code.addManyAsArray(self.allocator, 2);
                 new_bytes[0] = @truncate(index >> 8);
@@ -186,7 +194,7 @@ pub const Chunk = struct {
             },
             else => {},
         }
-        errdefer self.code.shrinkRetainingCapacity(instruction.size());
+        errdefer self.code.shrinkRetainingCapacity(instruction.size() - 1);
         try self.lines.append(line, instruction.size());
     }
 
