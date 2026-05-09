@@ -76,7 +76,7 @@ pub const GlobalVarStore = struct {
 
 pub const VM = struct {
     chunk: *Chunk = undefined,
-    ip: [*]u8 = undefined,
+    ip: usize = 0,
 
     stack: Stack(Value),
     globals: GlobalVarStore,
@@ -120,13 +120,13 @@ pub const VM = struct {
         try compiler.compile(source_code);
 
         self.chunk = &chunk;
-        self.ip = chunk.code.items.ptr;
+        self.ip = 0;
         try self.run();
     }
 
     fn run(self: *Self) !void {
         while (true) {
-            const instruction = Instruction.readFrom(self.ip);
+            const instruction = self.chunk.readInstruction(self.ip);
             if (config.trace_execution) {
                 debug.logStack(self.*);
                 debug.disassembleInstruction(instruction, self.chunk.*);
@@ -275,12 +275,6 @@ pub const VM = struct {
         }
     }
 
-    inline fn readByte(self: *Self) u8 {
-        const ret = self.ip.*;
-        self.ip += 1;
-        return ret;
-    }
-
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
         self.globals.deinit();
@@ -289,7 +283,7 @@ pub const VM = struct {
     }
 
     fn reportRuntimeError(self: *Self, comptime fmt: []const u8, args: anytype) !void {
-        const instruction_index = @intFromPtr(self.ip) - @intFromPtr(self.chunk.code.items.ptr) - 1;
+        const instruction_index = self.ip - 1;
         const line = try self.chunk.lines.get(instruction_index);
         try self.error_writer.print("\n[line {d}] Runtime error: ", .{line});
         try self.error_writer.print(fmt, args);

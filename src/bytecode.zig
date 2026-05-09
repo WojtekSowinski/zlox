@@ -81,41 +81,6 @@ pub const Instruction = union(enum) {
             else => 1,
         };
     }
-
-    pub fn readFrom(ptr: [*]const u8) Self {
-        const opcode: OpCode = @enumFromInt(ptr[0]);
-        switch (opcode) {
-            inline .long_constant,
-            .long_def_global,
-            .long_get_global,
-            .long_set_global,
-            .long_get_local,
-            .long_set_local,
-            => |tag| {
-                const index = (@as(LongIndex, ptr[1]) << 16) | (@as(LongIndex, ptr[2]) << 8) | ptr[3];
-                return @unionInit(Self, @tagName(tag), index);
-            },
-            inline .constant,
-            .def_global,
-            .get_global,
-            .set_global,
-            .get_local,
-            .set_local,
-            => |tag| {
-                const index = ptr[1];
-                return @unionInit(Self, @tagName(tag), index);
-            },
-            inline .jump,
-            .jump_if_falsey,
-            => |tag| {
-                const distance = (@as(JumpDistance, ptr[1]) << 8) | ptr[2];
-                return @unionInit(Self, @tagName(tag), distance);
-            },
-            inline else => |tag| {
-                return @unionInit(Self, @tagName(tag), {});
-            },
-        }
-    }
 };
 
 pub const Chunk = struct {
@@ -147,8 +112,40 @@ pub const Chunk = struct {
         self.lines.deinit();
     }
 
-    pub inline fn readInstruction(self: Self, index: usize) Instruction {
-        return Instruction.readFrom(@ptrFromInt(@intFromPtr(self.code.items.ptr) + index));
+    pub inline fn readInstruction(self: Self, offset: usize) Instruction {
+        const ptr: [*]const u8 = (@ptrFromInt(@intFromPtr(self.code.items.ptr) + offset));
+        const opcode: OpCode = @enumFromInt(ptr[0]);
+        switch (opcode) {
+            inline .long_constant,
+            .long_def_global,
+            .long_get_global,
+            .long_set_global,
+            .long_get_local,
+            .long_set_local,
+            => |tag| {
+                const index = (@as(LongIndex, ptr[1]) << 16) | (@as(LongIndex, ptr[2]) << 8) | ptr[3];
+                return @unionInit(Instruction, @tagName(tag), index);
+            },
+            inline .constant,
+            .def_global,
+            .get_global,
+            .set_global,
+            .get_local,
+            .set_local,
+            => |tag| {
+                const index = ptr[1];
+                return @unionInit(Instruction, @tagName(tag), index);
+            },
+            inline .jump,
+            .jump_if_falsey,
+            => |tag| {
+                const distance = (@as(JumpDistance, ptr[1]) << 8) | ptr[2];
+                return @unionInit(Instruction, @tagName(tag), distance);
+            },
+            inline else => |tag| {
+                return @unionInit(Instruction, @tagName(tag), {});
+            },
+        }
     }
 
     pub fn writeInstruction(
