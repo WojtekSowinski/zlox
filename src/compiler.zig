@@ -14,8 +14,17 @@ const config = @import("build_config");
 const GlobalVarStore = @import("vm.zig").GlobalVarStore;
 const Stack = @import("stack.zig").Stack;
 const WriterError = std.Io.Writer.Error;
+const ScopeTracker = @import("scope_tracker.zig").ScopeTracker;
+const functions = @import("functions.zig");
+const Function = functions.Function;
 
-const CompilerError = error{
+pub const CompilationError = error{
+    WriteFailed,
+    OutOfMemory,
+    InvalidCode,
+};
+
+const InternalError = error{
     WriteFailed,
     OutOfMemory,
 };
@@ -23,90 +32,11 @@ const CompilerError = error{
 const OOM = std.mem.Allocator.Error;
 
 error_writer: *std.Io.Writer,
-compilingChunk: *bytecode.Chunk,
 tokens: Scanner,
 parser: Parser,
 gc: *GarbageCollector,
 globals: *GlobalVarStore,
 scope_tracker: ScopeTracker,
-
-const ScopeTracker = struct {
-    locals: Stack(Local),
-    scope_depth: isize,
-
-    const SearchResult = union(enum) {
-        found: usize,
-        not_in_scope,
-        self_referencial,
-    };
-
-    pub fn init(allocator: std.mem.Allocator) OOM!ScopeTracker {
-        const locals = try Stack(Local).init(allocator, 256);
-        return .{ .locals = locals, .scope_depth = 0 };
-    }
-
-    pub fn reset(self: *ScopeTracker) void {
-        self.locals.clear();
-        self.scope_depth = 0;
-    }
-
-    pub fn deinit(self: *ScopeTracker) void {
-        self.locals.deinit();
-    }
-
-    pub fn enterScope(self: *ScopeTracker) void {
-        self.scope_depth += 1;
-    }
-
-    pub fn exitScope(self: *ScopeTracker) usize {
-        self.scope_depth -= 1;
-        var vars_popped: usize = 0;
-        while (self.locals.count > 0 and self.locals.peek(0).depth > self.scope_depth) {
-            vars_popped += 1;
-            _ = self.locals.pop();
-        }
-        return vars_popped;
-    }
-
-    pub fn addLocal(self: *ScopeTracker, name: Token) OOM!usize {
-        try self.locals.push(.{ .name = name, .depth = -1 });
-        return self.locals.count - 1;
-    }
-
-    pub fn markInitialized(self: *ScopeTracker) void {
-        const latestLocal = self.locals.peek(0);
-        self.locals.swap(.{ .name = latestLocal.name, .depth = self.scope_depth });
-    }
-
-    pub fn isNameTaken(self: ScopeTracker, name: Token) bool {
-        for (0..self.locals.count) |i| {
-            const local = self.locals.peek(i);
-            if (local.depth != -1 and local.depth < self.scope_depth) return false;
-            if (std.mem.eql(u8, local.name.lexeme, name.lexeme)) return true;
-        }
-        return false;
-    }
-
-    pub fn resolveLocal(self: ScopeTracker, name: Token) SearchResult {
-        for (0..self.locals.count) |i| {
-            const local = self.locals.peek(i);
-            if (std.mem.eql(u8, local.name.lexeme, name.lexeme)) {
-                if (local.depth == -1) return .self_referencial;
-                return .{ .found = self.locals.count - 1 - i };
-            }
-        }
-        return .not_in_scope;
-    }
-
-    pub fn isLocal(self: ScopeTracker) bool {
-        return self.scope_depth > 0;
-    }
-};
-
-const Local = struct {
-    name: Token,
-    depth: isize,
-};
 
 const Parser = struct {
     previous: Token = undefined,
@@ -134,8 +64,8 @@ const Precedence = enum {
 };
 
 const ParserRule = struct {
-    prefix: ?*const fn (*Self, bool) CompilerError!void,
-    infix: ?*const fn (*Self, bool) CompilerError!void,
+    prefix: ?*const fn (*Self, bool) InternalError!void,
+    infix: ?*const fn (*Self, bool) InternalError!void,
     precedence: Precedence,
 };
 
@@ -184,17 +114,15 @@ inline fn getRule(token_type: TokenType) ParserRule {
 const Self = @This();
 
 pub fn init(
-    chunk: *bytecode.Chunk,
     error_writer: *std.Io.Writer,
     gc: *GarbageCollector,
     globals: *GlobalVarStore,
 ) OOM!Self {
-    const scope_tracker = try ScopeTracker.init(gc.allocator());
+    const scope_tracker = try ScopeTracker.init(gc, .script);
     return Self{
         .globals = globals,
         .gc = gc,
         .error_writer = error_writer,
-        .compilingChunk = chunk,
         .parser = Parser{},
         .tokens = undefined,
         .scope_tracker = scope_tracker,
@@ -205,13 +133,13 @@ pub fn deinit(self: *Self) void {
     self.scope_tracker.deinit();
 }
 
-pub fn compile(self: *Self, source_code: []const u8) error{ WriteFailed, OutOfMemory, InvalidCode }!void {
+pub fn compile(self: *Self, source_code: []const u8) CompilationError!*Function {
     self.tokens = Scanner.init(source_code);
     try self.advance();
     while (!try self.match(.eof)) try self.statement();
-    try self.endCompilation();
+    const fun = self.endCompilation();
     self.scope_tracker.reset();
-    if (self.parser.had_error) return error.InvalidCode;
+    return if (self.parser.had_error) error.InvalidCode else fun;
 }
 
 fn advance(self: *Self) WriterError!void {
@@ -260,7 +188,7 @@ fn errPrint(self: Self, comptime fmt: []const u8, args: anytype) WriterError!voi
 }
 
 inline fn currentChunk(self: Self) *bytecode.Chunk {
-    return self.compilingChunk;
+    return &self.scope_tracker.function.chunk;
 }
 
 fn consume(self: *Self, expected: TokenType, err_msg: []const u8) WriterError!void {
@@ -306,7 +234,7 @@ inline fn emitInstructionWithIndex(
     try self.emitInstruction(instruction, self.parser.previous.line);
 }
 
-fn statement(self: *Self) CompilerError!void {
+fn statement(self: *Self) InternalError!void {
     if (try self.match(.kw_var)) {
         try self.varDeclaration();
     } else {
@@ -316,7 +244,7 @@ fn statement(self: *Self) CompilerError!void {
     if (self.parser.panic_mode) try self.synchronize();
 }
 
-fn command(self: *Self) CompilerError!void {
+fn command(self: *Self) InternalError!void {
     if (try self.match(.semicolon)) return;
 
     if (try self.match(.kw_print)) {
@@ -345,7 +273,7 @@ fn exitScope(self: *Self) OOM!void {
     };
 }
 
-fn block(self: *Self) CompilerError!void {
+fn block(self: *Self) InternalError!void {
     while (!self.checkFor(.right_brace) and !self.checkFor(.eof)) {
         try self.statement();
     }
@@ -358,19 +286,19 @@ fn emitJump(self: *Self, comptime opcode: OpCode) OOM!usize {
     return self.currentChunk().length() - bytecode.JUMP_DISTANCE_SIZE;
 }
 
-fn patchJump(self: *Self, jump_location: usize) CompilerError!void {
+fn patchJump(self: *Self, jump_location: usize) InternalError!void {
     const distance = self.currentChunk().length() - jump_location - bytecode.JUMP_DISTANCE_SIZE;
     if (distance > bytecode.MAX_JUMP) try self.errorAtPrevious("Too much code to jump over.");
     self.currentChunk().patchJump(jump_location, @intCast(distance));
 }
 
-fn emitLoopBackTo(self: *Self, target: usize) CompilerError!void {
+fn emitLoopBackTo(self: *Self, target: usize) InternalError!void {
     const distance = self.currentChunk().length() - target + bytecode.JUMP_DISTANCE_SIZE + @sizeOf(OpCode);
     if (distance > bytecode.MAX_JUMP) try self.errorAtPrevious("Loop body too large.");
     try self.emitInstruction(.{ .jump_back = @intCast(distance) }, self.parser.previous.line);
 }
 
-fn ifStatement(self: *Self) CompilerError!void {
+fn ifStatement(self: *Self) InternalError!void {
     try self.consume(.left_paren, "Expected '(' after 'if'.");
     try self.expression();
     try self.consume(.right_paren, "Expected ')' after condition.");
@@ -386,7 +314,7 @@ fn ifStatement(self: *Self) CompilerError!void {
     try self.patchJump(else_jump);
 }
 
-fn whileLoop(self: *Self) CompilerError!void {
+fn whileLoop(self: *Self) InternalError!void {
     const loop_start = self.currentChunk().length();
     try self.consume(.left_paren, "Expected '(' after 'while'.");
     try self.expression();
@@ -401,7 +329,7 @@ fn whileLoop(self: *Self) CompilerError!void {
     try self.emitInstruction(.pop, self.parser.previous.line);
 }
 
-fn forLoop(self: *Self) CompilerError!void {
+fn forLoop(self: *Self) InternalError!void {
     self.scope_tracker.enterScope();
 
     try self.consume(.left_paren, "Expected '(' after 'for'.");
@@ -442,7 +370,7 @@ fn forLoop(self: *Self) CompilerError!void {
     try self.exitScope();
 }
 
-fn varDeclaration(self: *Self) CompilerError!void {
+fn varDeclaration(self: *Self) InternalError!void {
     const id = try self.parseIdentifier("Expected variable name.");
     if (try self.match(.equal)) {
         try self.expression();
@@ -454,7 +382,7 @@ fn varDeclaration(self: *Self) CompilerError!void {
     try self.defineVariable(id);
 }
 
-fn parseIdentifier(self: *Self, err_msg: []const u8) CompilerError!usize {
+fn parseIdentifier(self: *Self, err_msg: []const u8) InternalError!usize {
     try self.consume(.identifier, err_msg);
 
     if (self.scope_tracker.isLocal()) {
@@ -465,12 +393,12 @@ fn parseIdentifier(self: *Self, err_msg: []const u8) CompilerError!usize {
     return self.makeIdentifier(self.parser.previous);
 }
 
-fn declareLocal(self: *Self) CompilerError!void {
+fn declareLocal(self: *Self) InternalError!void {
     const name = self.parser.previous;
-    if (self.scope_tracker.isNameTaken(name)) {
+    if (self.scope_tracker.isNameTaken(name.lexeme)) {
         try self.errorAtPrevious("Already a variable with this name in this scope");
     }
-    const index = try self.scope_tracker.addLocal(name);
+    const index = try self.scope_tracker.addLocal(name.lexeme);
     if (index > bytecode.MAX_LONG_INDEX) try self.errorAtPrevious("Too many local variables.");
 }
 
@@ -487,23 +415,23 @@ fn defineVariable(self: *Self, id_index: usize) OOM!void {
     }
 }
 
-fn printStatement(self: *Self) CompilerError!void {
+fn printStatement(self: *Self) InternalError!void {
     try self.expression();
     try self.consume(.semicolon, "Expected ';' after a print statement.");
     try self.emitInstruction(.print, self.parser.previous.line);
 }
 
-fn expressionStatement(self: *Self) CompilerError!void {
+fn expressionStatement(self: *Self) InternalError!void {
     try self.expression();
     try self.consume(.semicolon, "Expected ';' after an expression.");
     try self.emitInstruction(.pop, self.parser.previous.line);
 }
 
-fn expression(self: *Self) CompilerError!void {
+fn expression(self: *Self) InternalError!void {
     try self.parsePrecedence(.assignment);
 }
 
-fn parsePrecedence(self: *Self, precedence: Precedence) CompilerError!void {
+fn parsePrecedence(self: *Self, precedence: Precedence) InternalError!void {
     try self.advance();
     const prefix_rule = getRule(self.parser.previous.type).prefix;
     if (prefix_rule == null) {
@@ -523,7 +451,7 @@ fn parsePrecedence(self: *Self, precedence: Precedence) CompilerError!void {
     if (can_assign and try self.match(.equal)) try self.errorAtPrevious("Invalid assignment target.");
 }
 
-fn unary(self: *Self, can_assign: bool) CompilerError!void {
+fn unary(self: *Self, can_assign: bool) InternalError!void {
     _ = can_assign;
     const operator = self.parser.previous;
 
@@ -536,7 +464,7 @@ fn unary(self: *Self, can_assign: bool) CompilerError!void {
     }
 }
 
-fn binary(self: *Self, can_assign: bool) CompilerError!void {
+fn binary(self: *Self, can_assign: bool) InternalError!void {
     _ = can_assign;
     const operator = self.parser.previous;
     const rule = getRule(operator.type);
@@ -569,12 +497,12 @@ fn literal(self: *Self, can_assign: bool) OOM!void {
     try self.emitInstruction(opcode, token.line);
 }
 
-fn variable(self: *Self, can_assign: bool) CompilerError!void {
+fn variable(self: *Self, can_assign: bool) InternalError!void {
     try self.emitVariable(self.parser.previous, can_assign);
 }
 
-fn emitVariable(self: *Self, name: Token, can_assign: bool) CompilerError!void {
-    const localIndex = self.scope_tracker.resolveLocal(name);
+fn emitVariable(self: *Self, name: Token, can_assign: bool) InternalError!void {
+    const localIndex = self.scope_tracker.resolveLocal(name.lexeme);
     switch (localIndex) {
         .found => |arg| {
             if (arg > bytecode.MAX_LONG_INDEX) try self.errorAtPrevious("Too many global variables.");
@@ -602,7 +530,7 @@ fn emitSetOrGetAtIndex(
     comptime opcodes: [4]OpCode,
     arg: usize,
     can_assign: bool,
-) CompilerError!void {
+) InternalError!void {
     std.debug.assert(arg <= bytecode.MAX_LONG_INDEX);
     if (can_assign and try self.match(.equal)) {
         try self.expression();
@@ -612,7 +540,7 @@ fn emitSetOrGetAtIndex(
     }
 }
 
-fn andOperator(self: *Self, can_assign: bool) CompilerError!void {
+fn andOperator(self: *Self, can_assign: bool) InternalError!void {
     _ = can_assign;
     const end_jump = try self.emitJump(.jump_if_falsey);
     try self.emitInstruction(.pop, self.parser.previous.line);
@@ -620,7 +548,7 @@ fn andOperator(self: *Self, can_assign: bool) CompilerError!void {
     try self.patchJump(end_jump);
 }
 
-fn orOperator(self: *Self, can_assign: bool) CompilerError!void {
+fn orOperator(self: *Self, can_assign: bool) InternalError!void {
     _ = can_assign;
     const end_jump = try self.emitJump(.jump_if_truthy);
     try self.emitInstruction(.pop, self.parser.previous.line);
@@ -628,7 +556,7 @@ fn orOperator(self: *Self, can_assign: bool) CompilerError!void {
     try self.patchJump(end_jump);
 }
 
-fn string(self: *Self, can_assign: bool) CompilerError!void {
+fn string(self: *Self, can_assign: bool) InternalError!void {
     _ = can_assign;
     const lexeme = self.parser.previous.lexeme;
     const text = lexeme[1 .. lexeme.len - 1];
@@ -637,32 +565,34 @@ fn string(self: *Self, can_assign: bool) CompilerError!void {
     try self.emitConstant(.{ .object = obj });
 }
 
-fn number(self: *Self, can_assign: bool) CompilerError!void {
+fn number(self: *Self, can_assign: bool) InternalError!void {
     _ = can_assign;
     const value = std.fmt.parseFloat(f64, self.parser.previous.lexeme) catch unreachable;
     try self.emitConstant(.{ .number = value });
 }
 
-fn makeConstant(self: *Self, value: Value) CompilerError!usize {
+fn makeConstant(self: *Self, value: Value) InternalError!usize {
     const index = try self.currentChunk().addConstant(value);
     if (index > bytecode.MAX_LONG_INDEX) try self.errorAtPrevious("Too many constants in one chunk.");
     return index;
 }
 
-fn emitConstant(self: *Self, value: Value) CompilerError!void {
+fn emitConstant(self: *Self, value: Value) InternalError!void {
     const index = try self.makeConstant(value);
     return try self.emitInstructionWithIndex(.constant, .long_constant, index);
 }
 
-fn grouping(self: *Self, can_assign: bool) CompilerError!void {
+fn grouping(self: *Self, can_assign: bool) InternalError!void {
     _ = can_assign;
     try self.expression();
     try self.consume(.right_paren, "Expected ')' after expression.");
 }
 
-inline fn endCompilation(self: *Self) OOM!void {
+inline fn endCompilation(self: *Self) OOM!*Function {
     try self.emitReturn();
+    const fun = self.scope_tracker.function;
     if (config.disassemble) debug.disassembleChunk(self.currentChunk().*, "code");
+    return fun;
 }
 
 inline fn emitReturn(self: *Self) OOM!void {

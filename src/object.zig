@@ -1,4 +1,6 @@
 const std = @import("std");
+const functions = @import("functions.zig");
+const Function = functions.Function;
 
 pub const Obj = struct {
     type: ObjectType,
@@ -18,11 +20,20 @@ pub const Obj = struct {
         return self.is(.const_string) or self.is(.owned_string);
     }
 
-    pub inline fn print(self: *Self, writer: *std.Io.Writer) !void {
+    pub fn print(self: *Self, writer: *std.Io.Writer) !void {
         switch (self.type) {
             .const_string,
             .owned_string,
             => try writer.print("{s}", .{self.as(String).text}),
+            .function,
+            => {
+                const fn_name = self.as(Function).name;
+                if (fn_name) |name| {
+                    try writer.print("<fn {s}>", .{name});
+                } else {
+                    try writer.writeAll("<script>");
+                }
+            },
         }
     }
 };
@@ -30,6 +41,7 @@ pub const Obj = struct {
 pub const ObjectType = enum {
     const_string,
     owned_string,
+    function,
 };
 
 pub const String = struct {

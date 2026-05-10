@@ -4,6 +4,8 @@ const object = @import("object.zig");
 const Obj = object.Obj;
 const String = object.String;
 const ObjectType = object.ObjectType;
+const functions = @import("functions.zig");
+const Function = functions.Function;
 const HashTable = @import("hash_table.zig").HashTable;
 
 base_allocator: Allocator,
@@ -19,8 +21,12 @@ pub fn makeObject(self: *Self, obj_type: ObjectType) !*Obj {
         .const_string,
         .owned_string,
         => {
-            const str = try self.allocator().create(object.String);
+            const str = try self.allocator().create(String);
             obj = &(str.obj);
+        },
+        .function => {
+            const fun = try self.allocator().create(Function);
+            obj = &(fun.obj);
         },
     }
     obj.type = obj_type;
@@ -73,6 +79,16 @@ pub fn copyString(self: *Self, text: []const u8) !*String {
     return self.takeString(newstr);
 }
 
+pub fn newFunction(self: *Self) !*Function {
+    const obj = try self.makeObject(.function);
+    errdefer self.deleteObject(obj);
+    const function: *Function = @fieldParentPtr("obj", obj);
+    function.arity = 0;
+    function.name = null;
+    function.chunk = try .init(self.base_allocator);
+    return function;
+}
+
 pub fn deleteObjects(self: *Self) void {
     var objects = self.objects;
     while (objects) |obj| {
@@ -92,6 +108,11 @@ pub fn deleteObject(self: *Self, obj: *Obj) void {
             const str = obj.as(String);
             self.allocator().free(str.text);
             self.allocator().destroy(str);
+        },
+        .function => {
+            const fun = obj.as(Function);
+            fun.chunk.deinit();
+            self.allocator().destroy(fun);
         },
     }
 }

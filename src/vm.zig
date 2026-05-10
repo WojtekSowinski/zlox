@@ -13,12 +13,20 @@ const LoxGarbageCollector = @import("gc.zig");
 const object = @import("object.zig");
 const String = object.String;
 const HashTable = @import("hash_table.zig").HashTable;
+const functions = @import("functions.zig");
+const Function = functions.Function;
 
 fn emptyRead(context: *const anyopaque, buffer: []u8) !usize {
     _ = context;
     _ = buffer;
     return 0;
 }
+
+const CallFrame = struct {
+    function: *Function,
+    ip: usize,
+    base_index: usize,
+};
 
 pub const GlobalVarStore = struct {
     values: std.ArrayList(Value),
@@ -75,11 +83,9 @@ pub const GlobalVarStore = struct {
 };
 
 pub const VM = struct {
-    chunk: *Chunk = undefined,
-    ip: usize = 0,
-
     stack: Stack(Value),
     globals: GlobalVarStore,
+    frames: Stack(CallFrame),
 
     input_reader: *std.Io.Reader,
     output_writer: *std.Io.Writer,
@@ -95,44 +101,47 @@ pub const VM = struct {
         output_sink: *std.Io.Writer,
         error_sink: *std.Io.Writer,
     ) !Self {
-        var foo: VM = .{
-            .gc = undefined,
-            .globals = undefined,
-            .stack = undefined,
+        var gc = try LoxGarbageCollector.init(allocator);
+        errdefer gc.deinit();
+        var globals = try GlobalVarStore.init(allocator);
+        errdefer globals.deinit();
+        var stack = try Stack(Value).init(allocator, 256);
+        errdefer stack.deinit();
+        const frames = try Stack(CallFrame).init(allocator, 64);
+        return .{
+            .gc = gc,
+            .globals = globals,
+            .stack = stack,
+            .frames = frames,
             .input_reader = input_source,
             .output_writer = output_sink,
             .error_writer = error_sink,
         };
-        foo.gc = try LoxGarbageCollector.init(allocator);
-        errdefer foo.gc.deinit();
-        foo.globals = try GlobalVarStore.init(allocator);
-        errdefer foo.globals.deinit();
-        foo.stack = try Stack(Value).init(allocator, 256);
-        return foo;
     }
 
     pub fn interpret(self: *Self, source_code: []const u8) !void {
-        var chunk = try Chunk.init(self.gc.allocator());
-        defer chunk.deinit();
-
-        var compiler = try Compiler.init(&chunk, self.error_writer, &self.gc, &self.globals);
+        var compiler = try Compiler.init(self.error_writer, &self.gc, &self.globals);
         defer compiler.deinit();
-        try compiler.compile(source_code);
+        const function = try compiler.compile(source_code);
 
-        self.chunk = &chunk;
-        self.ip = 0;
+        try self.stack.push(.{ .object = &function.obj });
+        defer _ = self.stack.pop();
+        
+        const frame: CallFrame = .{ .base_index = 0, .ip = 0, .function = function };
+        try self.frames.push(frame);
         try self.run();
     }
 
     fn run(self: *Self) !void {
+        var frame = self.frames.getRef(0);
         while (true) {
-            const instruction = self.chunk.readInstruction(self.ip);
+            const instruction = frame.function.chunk.readInstruction(frame.ip);
             if (config.trace_execution) {
                 debug.logStack(self.*);
-                std.debug.print("{d:0>4} : ", .{self.ip});
-                debug.disassembleInstruction(instruction, self.chunk.*);
+                std.debug.print("{d:0>4} : ", .{frame.ip});
+                debug.disassembleInstruction(instruction, frame.function.chunk);
             }
-            self.ip += instruction.size();
+            frame.ip += instruction.size();
             switch (instruction) {
                 .ret => return,
                 .print => {
@@ -179,11 +188,11 @@ pub const VM = struct {
                 },
 
                 .get_local, .long_get_local => |index| {
-                    try self.stack.push(self.stack.array[index]);
+                    try self.stack.push(self.stack.array[frame.base_index + index]);
                 },
 
                 .set_local, .long_set_local => |index| {
-                    self.stack.array[index] = self.stack.peek(0);
+                    self.stack.array[frame.base_index + index] = self.stack.peek(0);
                 },
 
                 .negate => {
@@ -232,20 +241,20 @@ pub const VM = struct {
                 .less_or_equal => try self.runBinaryOp(.boolean, less_eq),
                 .greater_or_equal => try self.runBinaryOp(.boolean, greater_eq),
 
-                .jump => |distance| self.ip += distance,
-                .jump_back => |distance| self.ip -= distance,
+                .jump => |distance| frame.ip += distance,
+                .jump_back => |distance| frame.ip -= distance,
                 .jump_if_falsey => |distance| {
-                    if (self.stack.peek(0).isFalsey()) self.ip += distance;
+                    if (self.stack.peek(0).isFalsey()) frame.ip += distance;
                 },
                 .jump_if_truthy => |distance| {
-                    if (self.stack.peek(0).isTruthy()) self.ip += distance;
+                    if (self.stack.peek(0).isTruthy()) frame.ip += distance;
                 },
             }
         }
     }
 
     inline fn readConstant(self: Self, index: usize) Value {
-        return self.chunk.constants.items[index];
+        return self.frames.peek(0).function.chunk.constants.items[index];
     }
 
     inline fn readString(self: Self, index: usize) *String {
@@ -285,13 +294,15 @@ pub const VM = struct {
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
         self.globals.deinit();
+        self.frames.deinit();
         self.gc.deleteObjects();
         self.gc.deinit();
     }
 
     fn reportRuntimeError(self: *Self, comptime fmt: []const u8, args: anytype) !void {
-        const instruction_index = self.ip - 1;
-        const line = try self.chunk.lines.get(instruction_index);
+        const frame = self.frames.peek(0);
+        const instruction_index = frame.ip - 1;
+        const line = try frame.function.chunk.lines.get(instruction_index);
         try self.error_writer.print("\n[line {d}] Runtime error: ", .{line});
         try self.error_writer.print(fmt, args);
         try self.error_writer.writeByte('\n');
