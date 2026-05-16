@@ -125,10 +125,9 @@ pub const VM = struct {
         const function = try compiler.compile(source_code);
 
         try self.stack.push(.{ .object = &function.obj });
-        const frame: CallFrame = .{ .base_index = 0, .ip = 0, .function = function };
-        try self.frames.push(frame);
+        try self.callLoxFunction(function, 0);
         try self.run();
-        _ = self.stack.pop();
+        //_ = self.stack.pop();
     }
 
     fn run(self: *Self) !void {
@@ -142,7 +141,6 @@ pub const VM = struct {
             }
             frame.ip += instruction.size();
             switch (instruction) {
-                .ret => return,
                 .print => {
                     try self.stack.pop().print(self.output_writer);
                     try self.output_writer.writeByte('\n');
@@ -248,6 +246,22 @@ pub const VM = struct {
                 .jump_if_truthy => |distance| {
                     if (self.stack.peek(0).isTruthy()) frame.ip += distance;
                 },
+
+                .call => |arg_count| {
+                    try self.callValue(self.stack.peek(arg_count), arg_count);
+                    frame = self.frames.getRef(0);
+                },
+                .ret => {
+                    const result = self.stack.pop();
+                    _ = self.frames.pop();
+                    if (self.frames.count == 0) {
+                        _ = self.stack.pop();
+                        return;
+                    }
+                    self.stack.shrinkTo(frame.base_index);
+                    try self.stack.push(result);
+                    frame = self.frames.getRef(0);
+                },
             }
         }
     }
@@ -290,6 +304,30 @@ pub const VM = struct {
         }
     }
 
+    fn callValue(self: *Self, callee: Value, arg_count: u8) !void {
+        if (callee.isObject()) {
+            const obj = callee.object;
+            switch (obj.type) {
+                .function => return self.callLoxFunction(obj.as(Function), arg_count),
+                else => {},
+            }
+        }
+        return error.TypeError;
+    }
+
+    fn callLoxFunction(self: *Self, fun: *Function, arg_count: u8) !void {
+        if (arg_count != fun.arity) {
+            try self.reportRuntimeError("Expected {d} arguments but got {d}.", .{ fun.arity, arg_count });
+            return error.InvalidFunctionCall;
+        }
+
+        try self.frames.push(.{
+            .function = fun,
+            .ip = 0,
+            .base_index = self.stack.count - arg_count - 1,
+        });
+    }
+
     pub fn deinit(self: *Self) void {
         self.stack.deinit();
         self.globals.deinit();
@@ -299,13 +337,21 @@ pub const VM = struct {
     }
 
     fn reportRuntimeError(self: *Self, comptime fmt: []const u8, args: anytype) !void {
-        const frame = self.frames.peek(0);
-        const instruction_index = frame.ip - 1;
-        const line = try frame.function.chunk.lines.get(instruction_index);
-        try self.error_writer.print("\n[line {d}] Runtime error: ", .{line});
+        try self.error_writer.print("\nRuntime error: ", .{});
         try self.error_writer.print(fmt, args);
+
         try self.error_writer.writeByte('\n');
+        for (0..self.frames.count) |i| {
+            const frame = self.frames.peek(i);
+            const function = frame.function;
+            const instruction_index = frame.ip - 1;
+            const line = try function.chunk.lines.get(instruction_index);
+            const name = function.name orelse "script";
+            try self.error_writer.print("[line {d}] in {s}()\n", .{ line, name });
+        }
+
         self.stack.clear();
+        self.frames.clear();
     }
 };
 

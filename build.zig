@@ -4,9 +4,12 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const trace = b.option(bool, "trace", "Log each instruction before executiong it");
+    const disassemble = b.option(bool, "disassemble", "Log each instruction before executiong it");
+
     const options = b.addOptions();
-    options.addOption(bool, "trace_execution", b.release_mode == .off);
-    options.addOption(bool, "disassemble", b.release_mode == .off);
+    options.addOption(bool, "trace_execution", trace orelse (b.release_mode == .off));
+    options.addOption(bool, "disassemble", disassemble orelse (b.release_mode == .off));
 
     const fmt_step = b.step("fmt", "Run formatting checks");
 

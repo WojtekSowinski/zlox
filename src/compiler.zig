@@ -76,7 +76,7 @@ inline fn getRule(token_type: TokenType) ParserRule {
     comptime {
         for (std.enums.values(TokenType)) |token| {
             const rule = switch (token) {
-                .left_paren => .{ grouping, null, .none },
+                .left_paren => .{ grouping, call, .call },
 
                 .minus => .{ unary, binary, .sum },
                 .plus => .{ null, binary, .sum },
@@ -262,6 +262,8 @@ fn command(self: *Self) InternalError!void {
         self.scope_tracker.enterScope();
         try self.block();
         try self.exitScope();
+    } else if (try self.match(.kw_return)) {
+        try self.returnStatement();
     } else {
         try self.expressionStatement();
     }
@@ -373,6 +375,20 @@ fn forLoop(self: *Self) InternalError!void {
     try self.exitScope();
 }
 
+fn returnStatement(self: *Self) InternalError!void {
+    if (self.scope_tracker.context == .script) {
+        try self.errorAtPrevious("Can't return from top-level code.");
+    }
+
+    if (try self.match(.semicolon)) {
+        try self.emitReturn();
+    } else {
+        try self.expression();
+        try self.consume(.semicolon, "Expected ';' after return value.");
+        try self.emitInstruction(.ret, self.parser.previous.line);
+    }
+}
+
 fn funDeclaration(self: *Self) InternalError!void {
     const id = try self.parseIdentifier("Expected function name.");
     self.scope_tracker.markInitialized();
@@ -380,7 +396,7 @@ fn funDeclaration(self: *Self) InternalError!void {
     try self.defineVariable(id);
 }
 
-fn function(self: *Self, context: scope_tracking.Context) !void {
+fn function(self: *Self, context: scope_tracking.Context) InternalError!void {
     var function_scope: ScopeTracker = try .init(self.gc, context, self.parser.previous.lexeme);
     function_scope.enterScope();
 
@@ -406,6 +422,24 @@ fn function(self: *Self, context: scope_tracking.Context) !void {
     self.scope_tracker = outer_scope;
     function_scope.deinit();
     try self.emitConstant(.{ .object = &new_function.obj });
+}
+
+fn call(self: *Self, can_assign: bool) InternalError!void {
+    _ = can_assign;
+    const arg_count = try self.argumentList();
+    try self.emitInstruction(.{ .call = arg_count }, self.parser.previous.line);
+}
+
+fn argumentList(self: *Self) InternalError!u8 {
+    var arg_count: u8 = 0;
+    while (!self.checkFor(.right_paren)) {
+        try self.expression();
+        if (arg_count == 255) try self.errorAtPrevious("Can't have more than 255 parameters.");
+        arg_count += 1;
+        if (!try self.match(.comma)) break;
+    }
+    try self.consume(.right_paren, "Expected ')' after arguments.");
+    return arg_count;
 }
 
 fn varDeclaration(self: *Self) InternalError!void {
@@ -634,6 +668,7 @@ inline fn endCompilation(self: *Self) OOM!*Function {
 }
 
 inline fn emitReturn(self: *Self) OOM!void {
+    try self.emitInstruction(.nil, self.parser.previous.line);
     try self.emitInstruction(.ret, self.parser.previous.line);
 }
 

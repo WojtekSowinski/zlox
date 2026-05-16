@@ -41,6 +41,8 @@ pub const Instruction = union(enum) {
     pop_many: ShortIndex,
     long_pop_many: LongIndex,
 
+    call: u8,
+
     negate,
     add,
     multiply,
@@ -73,6 +75,7 @@ pub const Instruction = union(enum) {
             .get_local,
             .set_local,
             .pop_many,
+            .call,
             => 2,
             .long_constant,
             .long_def_global,
@@ -143,6 +146,7 @@ pub const Chunk = struct {
             .get_local,
             .set_local,
             .pop_many,
+            .call,
             => |tag| {
                 const index = ptr[1];
                 return @unionInit(Instruction, @tagName(tag), index);
@@ -176,6 +180,7 @@ pub const Chunk = struct {
             .get_local,
             .set_local,
             .pop_many,
+            .call,
             => |index| {
                 try self.write(index);
             },

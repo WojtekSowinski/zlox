@@ -42,6 +42,10 @@ pub fn Stack(T: type) type {
             self.count -= amount;
         }
 
+        pub inline fn shrinkTo(self: *Self, size: usize) void {
+            self.count = size;
+        }
+
         pub fn push(self: *Self, item: T) !void {
             const index = self.count;
             if (self.count == self.array.len) {
