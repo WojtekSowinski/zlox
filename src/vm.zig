@@ -126,7 +126,7 @@ pub const VM = struct {
 
         try self.stack.push(.{ .object = &function.obj });
         defer _ = self.stack.pop();
-        
+
         const frame: CallFrame = .{ .base_index = 0, .ip = 0, .function = function };
         try self.frames.push(frame);
         try self.run();
