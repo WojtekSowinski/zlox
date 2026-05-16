@@ -17,11 +17,11 @@ pub const ScopeTracker = struct {
         self_referencial,
     };
 
-    pub fn init(gc: *GarbageCollector, context: Context) OOM!ScopeTracker {
+    pub fn init(gc: *GarbageCollector, context: Context, name: ?[]const u8) OOM!ScopeTracker {
         var locals = try Stack(Local).init(gc.allocator(), 256);
         locals.push(.{ .depth = 0, .name = "" }) catch unreachable;
         errdefer locals.deinit();
-        const fun = try gc.newFunction();
+        const fun = try gc.newFunction(name);
         return .{
             .function = fun,
             .context = context,

@@ -2,8 +2,14 @@ const std = @import("std");
 const bytecode = @import("bytecode.zig");
 const Value = @import("value.zig").Value;
 const VM = @import("vm.zig").VM;
+const Function = @import("functions.zig").Function;
 
-pub fn disassembleChunk(chunk: bytecode.Chunk, name: []const u8) void {
+pub fn disassembleFunction(function: Function) void {
+    const name = function.name orelse "main";
+    disassembleChunk(function.chunk, name);
+}
+
+fn disassembleChunk(chunk: bytecode.Chunk, name: []const u8) void {
     std.debug.print("== {s} ==\n", .{name});
     var offset: usize = 0;
     while (offset < chunk.length()) {

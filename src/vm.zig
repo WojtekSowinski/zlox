@@ -125,11 +125,10 @@ pub const VM = struct {
         const function = try compiler.compile(source_code);
 
         try self.stack.push(.{ .object = &function.obj });
-        defer _ = self.stack.pop();
-
         const frame: CallFrame = .{ .base_index = 0, .ip = 0, .function = function };
         try self.frames.push(frame);
         try self.run();
+        _ = self.stack.pop();
     }
 
     fn run(self: *Self) !void {

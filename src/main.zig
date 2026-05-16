@@ -40,7 +40,7 @@ pub fn main(init: std.process.Init) !void {
             if (length == 0) continue;
 
             try repl_line_buff.writer.writeByte(';');
-            _ = mainVM.interpret(repl_line_buff.written()) catch {};
+            mainVM.interpret(repl_line_buff.written()) catch {};
 
             try stdout.flush();
             try stderr.flush();

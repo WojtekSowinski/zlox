@@ -79,12 +79,15 @@ pub fn copyString(self: *Self, text: []const u8) !*String {
     return self.takeString(newstr);
 }
 
-pub fn newFunction(self: *Self) !*Function {
+pub fn newFunction(self: *Self, name: ?[]const u8) !*Function {
     const obj = try self.makeObject(.function);
     errdefer self.deleteObject(obj);
     const function: *Function = @fieldParentPtr("obj", obj);
     function.arity = 0;
-    function.name = null;
+    if (name) |fun_name| {
+        const name_copy = try self.copyString(fun_name);
+        function.name = name_copy.text;
+    } else function.name = null;
     function.chunk = try .init(self.base_allocator);
     return function;
 }

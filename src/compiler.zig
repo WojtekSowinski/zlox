@@ -14,7 +14,8 @@ const config = @import("build_config");
 const GlobalVarStore = @import("vm.zig").GlobalVarStore;
 const Stack = @import("stack.zig").Stack;
 const WriterError = std.Io.Writer.Error;
-const ScopeTracker = @import("scope_tracker.zig").ScopeTracker;
+const scope_tracking = @import("scope_tracker.zig");
+const ScopeTracker = scope_tracking.ScopeTracker;
 const functions = @import("functions.zig");
 const Function = functions.Function;
 
@@ -118,7 +119,7 @@ pub fn init(
     gc: *GarbageCollector,
     globals: *GlobalVarStore,
 ) OOM!Self {
-    const scope_tracker = try ScopeTracker.init(gc, .script);
+    const scope_tracker = try ScopeTracker.init(gc, .script, null);
     return Self{
         .globals = globals,
         .gc = gc,
@@ -235,7 +236,9 @@ inline fn emitInstructionWithIndex(
 }
 
 fn statement(self: *Self) InternalError!void {
-    if (try self.match(.kw_var)) {
+    if (try self.match(.kw_fun)) {
+        try self.funDeclaration();
+    } else if (try self.match(.kw_var)) {
         try self.varDeclaration();
     } else {
         try self.command();
@@ -368,6 +371,41 @@ fn forLoop(self: *Self) InternalError!void {
     }
 
     try self.exitScope();
+}
+
+fn funDeclaration(self: *Self) InternalError!void {
+    const id = try self.parseIdentifier("Expected function name.");
+    self.scope_tracker.markInitialized();
+    try self.function(.function);
+    try self.defineVariable(id);
+}
+
+fn function(self: *Self, context: scope_tracking.Context) !void {
+    var function_scope: ScopeTracker = try .init(self.gc, context, self.parser.previous.lexeme);
+    function_scope.enterScope();
+
+    const outer_scope = self.scope_tracker;
+    self.scope_tracker = function_scope;
+
+    try self.consume(.left_paren, "Expected '(' after function name.");
+    var arity: u8 = 0;
+    while (!self.checkFor(.right_paren)) {
+        if (arity == 255) try self.errorAtCurrent("Can't have more than 255 parameters.");
+        arity += 1;
+        const parameter = try self.parseIdentifier("Expected parameter name.");
+        try self.defineVariable(parameter);
+        if (!try self.match(.comma)) break;
+    }
+    self.scope_tracker.function.arity = arity;
+    try self.consume(.right_paren, "Expected ')' after parameters.");
+
+    try self.consume(.left_brace, "Expected '{' before function body.");
+    try self.block();
+
+    const new_function = try self.endCompilation();
+    self.scope_tracker = outer_scope;
+    function_scope.deinit();
+    try self.emitConstant(.{ .object = &new_function.obj });
 }
 
 fn varDeclaration(self: *Self) InternalError!void {
@@ -591,7 +629,7 @@ fn grouping(self: *Self, can_assign: bool) InternalError!void {
 inline fn endCompilation(self: *Self) OOM!*Function {
     try self.emitReturn();
     const fun = self.scope_tracker.function;
-    if (config.disassemble) debug.disassembleChunk(self.currentChunk().*, "code");
+    if (config.disassemble) debug.disassembleFunction(fun.*);
     return fun;
 }
 
