@@ -2,9 +2,9 @@ const std = @import("std");
 const bytecode = @import("bytecode.zig");
 const Value = @import("value.zig").Value;
 const VM = @import("vm.zig").VM;
-const Function = @import("functions.zig").Function;
+const LoxFunction = @import("functions.zig").LoxFunction;
 
-pub fn disassembleFunction(function: Function) void {
+pub fn disassembleFunction(function: LoxFunction) void {
     const name = function.name orelse "main";
     disassembleChunk(function.chunk, name);
 }

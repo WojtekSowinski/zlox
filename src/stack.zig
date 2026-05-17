@@ -29,6 +29,10 @@ pub fn Stack(T: type) type {
             return &self.array[self.count - 1 - distance];
         }
 
+        pub inline fn topN(self: *Self, n: usize) []T {
+            return self.array[self.count - n .. self.count];
+        }
+
         pub inline fn swap(self: *Self, item: T) void {
             self.array[self.count - 1] = item;
         }

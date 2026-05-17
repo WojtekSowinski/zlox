@@ -3,10 +3,10 @@ const GarbageCollector = @import("gc.zig");
 const GlobalVarStore = @import("vm.zig").GlobalVarStore;
 const Stack = @import("stack.zig").Stack;
 const OOM = std.mem.Allocator.Error;
-const Function = @import("functions.zig").Function;
+const LoxFunction = @import("functions.zig").LoxFunction;
 
 pub const ScopeTracker = struct {
-    function: *Function,
+    function: *LoxFunction,
     context: Context,
     locals: Stack(Local),
     scope_depth: isize,

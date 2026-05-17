@@ -17,7 +17,7 @@ const WriterError = std.Io.Writer.Error;
 const scope_tracking = @import("scope_tracker.zig");
 const ScopeTracker = scope_tracking.ScopeTracker;
 const functions = @import("functions.zig");
-const Function = functions.Function;
+const LoxFunction = functions.LoxFunction;
 
 pub const CompilationError = error{
     WriteFailed,
@@ -134,7 +134,7 @@ pub fn deinit(self: *Self) void {
     self.scope_tracker.deinit();
 }
 
-pub fn compile(self: *Self, source_code: []const u8) CompilationError!*Function {
+pub fn compile(self: *Self, source_code: []const u8) CompilationError!*LoxFunction {
     self.tokens = Scanner.init(source_code);
     try self.advance();
     while (!try self.match(.eof)) try self.statement();
@@ -660,7 +660,7 @@ fn grouping(self: *Self, can_assign: bool) InternalError!void {
     try self.consume(.right_paren, "Expected ')' after expression.");
 }
 
-inline fn endCompilation(self: *Self) OOM!*Function {
+inline fn endCompilation(self: *Self) OOM!*LoxFunction {
     try self.emitReturn();
     const fun = self.scope_tracker.function;
     if (config.disassemble) debug.disassembleFunction(fun.*);

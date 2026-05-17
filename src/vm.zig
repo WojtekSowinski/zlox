@@ -14,7 +14,9 @@ const object = @import("object.zig");
 const String = object.String;
 const HashTable = @import("hash_table.zig").HashTable;
 const functions = @import("functions.zig");
-const Function = functions.Function;
+const LoxFunction = functions.LoxFunction;
+const NativeFunction = functions.NativeFunction;
+const NativeFn = functions.NativeFn;
 
 fn emptyRead(context: *const anyopaque, buffer: []u8) !usize {
     _ = context;
@@ -23,7 +25,7 @@ fn emptyRead(context: *const anyopaque, buffer: []u8) !usize {
 }
 
 const CallFrame = struct {
-    function: *Function,
+    function: *LoxFunction,
     ip: usize,
     base_index: usize,
 };
@@ -108,7 +110,7 @@ pub const VM = struct {
         var stack = try Stack(Value).init(allocator, 256);
         errdefer stack.deinit();
         const frames = try Stack(CallFrame).init(allocator, 64);
-        return .{
+        var vm: Self = .{
             .gc = gc,
             .globals = globals,
             .stack = stack,
@@ -117,6 +119,9 @@ pub const VM = struct {
             .output_writer = output_sink,
             .error_writer = error_sink,
         };
+        try vm.defineNativeFunction("clock", functions.clock);
+        try vm.defineNativeFunction("sum", functions.sum);
+        return vm;
     }
 
     pub fn interpret(self: *Self, source_code: []const u8) !void {
@@ -308,14 +313,31 @@ pub const VM = struct {
         if (callee.isObject()) {
             const obj = callee.object;
             switch (obj.type) {
-                .function => return self.callLoxFunction(obj.as(Function), arg_count),
+                .lox_function => return self.callLoxFunction(obj.as(LoxFunction), arg_count),
+                .native_function => {
+                    const args = self.stack.topN(arg_count);
+                    const result = obj.as(NativeFunction).apply(self, args);
+                    self.stack.shrinkBy(arg_count);
+                    self.stack.swap(result);
+                    return;
+                },
                 else => {},
             }
         }
         return error.TypeError;
     }
 
-    fn callLoxFunction(self: *Self, fun: *Function, arg_count: u8) !void {
+    pub fn defineNativeFunction(self: *Self, name: []const u8, function: *const NativeFn) !void {
+        const name_str = try self.gc.copyString(name);
+        try self.stack.push(.{ .object = &name_str.obj });
+        const function_object = try self.gc.newNative(function);
+        try self.stack.push(.{ .object = &function_object.obj });
+        const index = try self.globals.getIndexOrCreate(name_str);
+        self.globals.assignValue(index, self.stack.peek(0));
+        self.stack.shrinkBy(2);
+    }
+
+    fn callLoxFunction(self: *Self, fun: *LoxFunction, arg_count: u8) !void {
         if (arg_count != fun.arity) {
             try self.reportRuntimeError("Expected {d} arguments but got {d}.", .{ fun.arity, arg_count });
             return error.InvalidFunctionCall;

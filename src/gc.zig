@@ -5,7 +5,9 @@ const Obj = object.Obj;
 const String = object.String;
 const ObjectType = object.ObjectType;
 const functions = @import("functions.zig");
-const Function = functions.Function;
+const LoxFunction = functions.LoxFunction;
+const NativeFunction = functions.NativeFunction;
+const NativeFn = functions.NativeFn;
 const HashTable = @import("hash_table.zig").HashTable;
 
 base_allocator: Allocator,
@@ -18,15 +20,9 @@ const StringPool = HashTable([]const u8, *String, hashString, compareStrings);
 pub fn makeObject(self: *Self, obj_type: ObjectType) !*Obj {
     var obj: *Obj = undefined;
     switch (obj_type) {
-        .const_string,
-        .owned_string,
-        => {
-            const str = try self.allocator().create(String);
-            obj = &(str.obj);
-        },
-        .function => {
-            const fun = try self.allocator().create(Function);
-            obj = &(fun.obj);
+        inline else => |tag| {
+            const new_object = try self.allocator().create(tag.zigRepresentation());
+            obj = &(new_object.obj);
         },
     }
     obj.type = obj_type;
@@ -79,16 +75,23 @@ pub fn copyString(self: *Self, text: []const u8) !*String {
     return self.takeString(newstr);
 }
 
-pub fn newFunction(self: *Self, name: ?[]const u8) !*Function {
-    const obj = try self.makeObject(.function);
+pub fn newFunction(self: *Self, name: ?[]const u8) !*LoxFunction {
+    const obj = try self.makeObject(.lox_function);
     errdefer self.deleteObject(obj);
-    const function: *Function = @fieldParentPtr("obj", obj);
+    const function: *LoxFunction = @fieldParentPtr("obj", obj);
     function.arity = 0;
     if (name) |fun_name| {
         const name_copy = try self.copyString(fun_name);
         function.name = name_copy.text;
     } else function.name = null;
     function.chunk = try .init(self.base_allocator);
+    return function;
+}
+
+pub fn newNative(self: *Self, fun: *const NativeFn) !*NativeFunction {
+    const obj = try self.makeObject(.native_function);
+    const function: *NativeFunction = @fieldParentPtr("obj", obj);
+    function.apply = fun;
     return function;
 }
 
@@ -112,9 +115,13 @@ pub fn deleteObject(self: *Self, obj: *Obj) void {
             self.allocator().free(str.text);
             self.allocator().destroy(str);
         },
-        .function => {
-            const fun = obj.as(Function);
+        .lox_function => {
+            const fun = obj.as(LoxFunction);
             fun.chunk.deinit();
+            self.allocator().destroy(fun);
+        },
+        .native_function => {
+            const fun = obj.as(NativeFunction);
             self.allocator().destroy(fun);
         },
     }

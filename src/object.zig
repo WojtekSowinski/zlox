@@ -1,6 +1,7 @@
 const std = @import("std");
 const functions = @import("functions.zig");
-const Function = functions.Function;
+const LoxFunction = functions.LoxFunction;
+const NativeFunction = functions.NativeFunction;
 
 pub const Obj = struct {
     type: ObjectType,
@@ -25,15 +26,17 @@ pub const Obj = struct {
             .const_string,
             .owned_string,
             => try writer.print("{s}", .{self.as(String).text}),
-            .function,
+            .lox_function,
             => {
-                const fn_name = self.as(Function).name;
+                const fn_name = self.as(LoxFunction).name;
                 if (fn_name) |name| {
                     try writer.print("<fn {s}>", .{name});
                 } else {
                     try writer.writeAll("<script>");
                 }
             },
+            .native_function,
+            => try writer.writeAll("<native fn>"),
         }
     }
 };
@@ -41,7 +44,16 @@ pub const Obj = struct {
 pub const ObjectType = enum {
     const_string,
     owned_string,
-    function,
+    lox_function,
+    native_function,
+
+    pub fn zigRepresentation(obj_type: ObjectType) type {
+        return switch (obj_type) {
+            .const_string, .owned_string => String,
+            .lox_function => LoxFunction,
+            .native_function => NativeFunction,
+        };
+    }
 };
 
 pub const String = struct {
