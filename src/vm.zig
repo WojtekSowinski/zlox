@@ -89,6 +89,7 @@ pub const VM = struct {
     globals: GlobalVarStore,
     frames: Stack(CallFrame),
 
+    io: std.Io,
     input_reader: *std.Io.Reader,
     output_writer: *std.Io.Writer,
     error_writer: *std.Io.Writer,
@@ -99,6 +100,7 @@ pub const VM = struct {
 
     pub fn init(
         allocator: std.mem.Allocator,
+        io: std.Io,
         input_source: *std.Io.Reader,
         output_sink: *std.Io.Writer,
         error_sink: *std.Io.Writer,
@@ -115,12 +117,16 @@ pub const VM = struct {
             .globals = globals,
             .stack = stack,
             .frames = frames,
+            .io = io,
             .input_reader = input_source,
             .output_writer = output_sink,
             .error_writer = error_sink,
         };
         try vm.defineNativeFunction("clock", functions.clock);
-        try vm.defineNativeFunction("sum", functions.sum);
+        try vm.defineNativeFunction("max", functions.max);
+        try vm.defineNativeFunction("str", functions.str);
+        try vm.defineNativeFunction("input", functions.input);
+        try vm.defineNativeFunction("num", functions.num);
         return vm;
     }
 
@@ -316,7 +322,7 @@ pub const VM = struct {
                 .lox_function => return self.callLoxFunction(obj.as(LoxFunction), arg_count),
                 .native_function => {
                     const args = self.stack.topN(arg_count);
-                    const result = obj.as(NativeFunction).apply(self, args);
+                    const result = try obj.as(NativeFunction).apply(self, args);
                     self.stack.shrinkBy(arg_count);
                     self.stack.swap(result);
                     return;
@@ -340,7 +346,7 @@ pub const VM = struct {
     fn callLoxFunction(self: *Self, fun: *LoxFunction, arg_count: u8) !void {
         if (arg_count != fun.arity) {
             try self.reportRuntimeError("Expected {d} arguments but got {d}.", .{ fun.arity, arg_count });
-            return error.InvalidFunctionCall;
+            return error.IncorrectArity;
         }
 
         try self.frames.push(.{
@@ -358,7 +364,7 @@ pub const VM = struct {
         self.gc.deinit();
     }
 
-    fn reportRuntimeError(self: *Self, comptime fmt: []const u8, args: anytype) !void {
+    pub fn reportRuntimeError(self: *Self, comptime fmt: []const u8, args: anytype) !void {
         try self.error_writer.print("\nRuntime error: ", .{});
         try self.error_writer.print(fmt, args);
 

@@ -1,8 +1,11 @@
+const std = @import("std");
 const objects = @import("object.zig");
 const bytecode = @import("bytecode.zig");
 const vm = @import("vm.zig");
+const VM = vm.VM;
 const values = @import("value.zig");
 const Value = values.Value;
+const String = objects.String;
 
 pub const LoxFunction = struct {
     obj: objects.Obj,
@@ -16,27 +19,70 @@ pub const NativeFunction = struct {
     apply: *const NativeFn,
 };
 
-pub const NativeFn = fn (*vm.VM, []Value) Value;
+pub const NativeFn = fn (*VM, []Value) anyerror!Value;
 
-pub fn clock(machine: *vm.VM, args: []Value) Value {
-    _ = machine;
+pub fn clock(machine: *VM, args: []Value) !Value {
     _ = args;
-    return .{ .number = 42 }; // TODO: implement an actual clock (vm may need to store an io instance);
+    return .{ .number = @floatFromInt(std.Io.Timestamp.now(machine.io, .cpu_process).toSeconds()) };
 }
 
-pub fn sum(machine: *vm.VM, args: []Value) Value {
-    _ = machine;
-    var total: f64 = 0;
+pub fn max(machine: *VM, args: []Value) !Value {
+    var result: f64 = 0;
     for (args) |arg| {
         switch (arg) {
-            .number => |n| total += n,
-            else => {}, // TODO: allow native functions to return errors;
+            .number => |n| if (n > result) {
+                result = n;
+            },
+            else => {
+                try machine.reportRuntimeError("Arguments to max must be numbers.", .{});
+                return error.TypeError;
+            },
         }
     }
-    return .{ .number = total };
+    return .{ .number = result };
 }
 
-// TODO: implement the following native functions:
-// - str() converts argument to a string
-// - input() prints argument (without line break), reads a line of input
-// - num() parses a number from a string
+pub fn str(machine: *VM, args: []Value) !Value {
+    if (args.len != 1) {
+        try machine.reportRuntimeError("Expected 1 argument but got {d}.", .{args.len});
+        return error.IncorrectArity;
+    }
+    var string_builder = std.Io.Writer.Allocating.init(machine.gc.allocator());
+    defer string_builder.deinit();
+    try args[0].print(&string_builder.writer);
+    const result = try machine.gc.copyString(string_builder.written());
+    return .{ .object = &result.obj };
+}
+
+pub fn input(machine: *VM, args: []Value) !Value {
+    if (args.len != 1) {
+        try machine.reportRuntimeError("Expected 1 argument but got {d}.", .{args.len});
+        return error.IncorrectArity;
+    }
+    if (!args[0].isString()) {
+        try machine.reportRuntimeError("Input prompt must be a string.", .{});
+        return error.TypeError;
+    }
+    try args[0].print(machine.output_writer);
+    try machine.output_writer.flush();
+    var string_builder = std.Io.Writer.Allocating.init(machine.gc.allocator());
+    defer string_builder.deinit();
+    _ = try machine.input_reader.streamDelimiterEnding(&string_builder.writer, '\n');
+    _ = try machine.input_reader.discardShort(1);
+    const result = try machine.gc.copyString(string_builder.written());
+    return .{ .object = &result.obj };
+}
+
+pub fn num(machine: *VM, args: []Value) !Value {
+    if (args.len != 1) {
+        try machine.reportRuntimeError("Expected 1 argument but got {d}.", .{args.len});
+        return error.IncorrectArity;
+    }
+    if (!args[0].isString()) {
+        try machine.reportRuntimeError("Input prompt must be a string.", .{});
+        return error.TypeError;
+    }
+    const arg = args[0].object.as(String);
+    const result = std.fmt.parseFloat(f64, arg.text) catch return .nil;
+    return .{ .number = result };
+}
