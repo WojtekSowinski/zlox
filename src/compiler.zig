@@ -119,7 +119,7 @@ pub fn init(
     gc: *GarbageCollector,
     globals: *GlobalVarStore,
 ) OOM!Self {
-    const scope_tracker = try ScopeTracker.init(gc, .script, null);
+    const scope_tracker = try ScopeTracker.init(gc, .script, null, null);
     return Self{
         .globals = globals,
         .gc = gc,
@@ -397,10 +397,10 @@ fn funDeclaration(self: *Self) InternalError!void {
 }
 
 fn function(self: *Self, context: scope_tracking.Context) InternalError!void {
-    var function_scope: ScopeTracker = try .init(self.gc, context, self.parser.previous.lexeme);
+    const name = self.parser.previous.lexeme;
+    var function_scope: ScopeTracker = try .init(self.gc, context, name, &self.scope_tracker);
     function_scope.enterScope();
 
-    const outer_scope = self.scope_tracker;
     self.scope_tracker = function_scope;
 
     try self.consume(.left_paren, "Expected '(' after function name.");
@@ -419,9 +419,14 @@ fn function(self: *Self, context: scope_tracking.Context) InternalError!void {
     try self.block();
 
     const new_function = try self.endCompilation();
-    self.scope_tracker = outer_scope;
+    self.scope_tracker = function_scope.enclosing.?.*;
     function_scope.deinit();
-    try self.emitConstant(.{ .object = &new_function.obj });
+    try self.emitClosure(new_function);
+}
+
+fn emitClosure(self: *Self, fun: *LoxFunction) InternalError!void {
+    const index = try self.makeConstant(.{ .object = &fun.obj });
+    return try self.emitInstructionWithIndex(.closure, .long_closure, index);
 }
 
 fn call(self: *Self, can_assign: bool) InternalError!void {
@@ -576,13 +581,17 @@ fn variable(self: *Self, can_assign: bool) InternalError!void {
 fn emitVariable(self: *Self, name: Token, can_assign: bool) InternalError!void {
     const localIndex = self.scope_tracker.resolveLocal(name.lexeme);
     switch (localIndex) {
-        .found => |arg| {
-            if (arg > bytecode.MAX_LONG_INDEX) try self.errorAtPrevious("Too many global variables.");
+        .local => |arg| {
+            if (arg > bytecode.MAX_LONG_INDEX) try self.errorAtPrevious("Too many local variables.");
             try self.emitSetOrGetAtIndex(
                 [_]OpCode{ .set_local, .long_set_local, .get_local, .long_get_local },
                 arg,
                 can_assign,
             );
+        },
+        .up_value => |arg| {
+            if (arg > bytecode.MAX_SHORT_INDEX) try self.errorAtPrevious("Closure captures too many variables.");
+            try self.emitUpValue(@intCast(arg));
         },
         .not_in_scope => {
             const arg = try self.makeIdentifier(name);
@@ -595,6 +604,11 @@ fn emitVariable(self: *Self, name: Token, can_assign: bool) InternalError!void {
         },
         .self_referencial => try self.errorAtPrevious("Can't read local variable in its own initializer."),
     }
+}
+
+fn emitUpValue(self: *Self, index: u8) OOM!void {
+    _ = self;
+    _ = index; // TODO: emit upvalue instruction
 }
 
 fn emitSetOrGetAtIndex(

@@ -6,6 +6,7 @@ const String = object.String;
 const ObjectType = object.ObjectType;
 const functions = @import("functions.zig");
 const LoxFunction = functions.LoxFunction;
+const Closure = functions.Closure;
 const NativeFunction = functions.NativeFunction;
 const NativeFn = functions.NativeFn;
 const HashTable = @import("hash_table.zig").HashTable;
@@ -80,12 +81,20 @@ pub fn newFunction(self: *Self, name: ?[]const u8) !*LoxFunction {
     errdefer self.deleteObject(obj);
     const function: *LoxFunction = @fieldParentPtr("obj", obj);
     function.arity = 0;
+    function.up_value_count = 0;
     if (name) |fun_name| {
         const name_copy = try self.copyString(fun_name);
         function.name = name_copy.text;
     } else function.name = null;
     function.chunk = try .init(self.base_allocator);
     return function;
+}
+
+pub fn newClosure(self: *Self, function: *LoxFunction) !*Closure {
+    const obj = try self.makeObject(.closure);
+    const closure: *Closure = @fieldParentPtr("obj", obj);
+    closure.function = function;
+    return closure;
 }
 
 pub fn newNative(self: *Self, fun: *const NativeFn) !*NativeFunction {
@@ -119,6 +128,10 @@ pub fn deleteObject(self: *Self, obj: *Obj) void {
             const fun = obj.as(LoxFunction);
             fun.chunk.deinit();
             self.allocator().destroy(fun);
+        },
+        .closure => {
+            const closure = obj.as(Closure);
+            self.allocator().destroy(closure);
         },
         .native_function => {
             const fun = obj.as(NativeFunction);

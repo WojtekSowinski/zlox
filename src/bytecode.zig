@@ -41,6 +41,9 @@ pub const Instruction = union(enum) {
     pop_many: ShortIndex,
     long_pop_many: LongIndex,
 
+    closure: ShortIndex,
+    long_closure: LongIndex,
+
     call: u8,
 
     negate,
@@ -67,31 +70,13 @@ pub const Instruction = union(enum) {
     const Self = @This();
 
     pub fn size(self: Instruction) usize {
-        return switch (self) {
-            .constant,
-            .def_global,
-            .get_global,
-            .set_global,
-            .get_local,
-            .set_local,
-            .pop_many,
-            .call,
-            => 2,
-            .long_constant,
-            .long_def_global,
-            .long_get_global,
-            .long_set_global,
-            .long_get_local,
-            .long_set_local,
-            .long_pop_many,
-            => 4,
-            .jump,
-            .jump_back,
-            .jump_if_falsey,
-            .jump_if_truthy,
-            => 3,
-            else => 1,
-        };
+        switch (self) {
+            inline else => |_, opcode| {
+                const operand_type = @FieldType(Instruction, @tagName(opcode));
+                const bytes = comptime std.math.divCeil(usize, @bitSizeOf(operand_type), 8) catch unreachable;
+                return comptime 1 + bytes;
+            },
+        }
     }
 };
 
@@ -135,6 +120,7 @@ pub const Chunk = struct {
             .long_get_local,
             .long_set_local,
             .long_pop_many,
+            .long_closure,
             => |tag| {
                 const index = (@as(LongIndex, ptr[1]) << 16) | (@as(LongIndex, ptr[2]) << 8) | ptr[3];
                 return @unionInit(Instruction, @tagName(tag), index);
@@ -146,6 +132,7 @@ pub const Chunk = struct {
             .get_local,
             .set_local,
             .pop_many,
+            .closure,
             .call,
             => |tag| {
                 const index = ptr[1];

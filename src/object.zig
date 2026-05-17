@@ -1,6 +1,7 @@
 const std = @import("std");
 const functions = @import("functions.zig");
 const LoxFunction = functions.LoxFunction;
+const Closure = functions.Closure;
 const NativeFunction = functions.NativeFunction;
 
 pub const Obj = struct {
@@ -35,8 +36,8 @@ pub const Obj = struct {
                     try writer.writeAll("<script>");
                 }
             },
-            .native_function,
-            => try writer.writeAll("<native fn>"),
+            .closure => try self.as(Closure).function.obj.print(writer),
+            .native_function => try writer.writeAll("<native fn>"),
         }
     }
 };
@@ -45,12 +46,14 @@ pub const ObjectType = enum {
     const_string,
     owned_string,
     lox_function,
+    closure,
     native_function,
 
     pub fn zigRepresentation(obj_type: ObjectType) type {
         return switch (obj_type) {
             .const_string, .owned_string => String,
             .lox_function => LoxFunction,
+            .closure => Closure,
             .native_function => NativeFunction,
         };
     }

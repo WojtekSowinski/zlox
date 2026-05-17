@@ -10,14 +10,22 @@ pub const ScopeTracker = struct {
     context: Context,
     locals: Stack(Local),
     scope_depth: isize,
+    enclosing: ?*ScopeTracker,
+    up_values: [256]UpValue,
 
     const SearchResult = union(enum) {
-        found: usize,
+        local: usize,
+        up_value: usize,
         not_in_scope,
         self_referencial,
     };
 
-    pub fn init(gc: *GarbageCollector, context: Context, name: ?[]const u8) OOM!ScopeTracker {
+    pub fn init(
+        gc: *GarbageCollector,
+        context: Context,
+        name: ?[]const u8,
+        enclosing: ?*ScopeTracker,
+    ) OOM!ScopeTracker {
         var locals = try Stack(Local).init(gc.allocator(), 256);
         locals.push(.{ .depth = 0, .name = "" }) catch unreachable;
         errdefer locals.deinit();
@@ -27,6 +35,8 @@ pub const ScopeTracker = struct {
             .context = context,
             .locals = locals,
             .scope_depth = 0,
+            .enclosing = enclosing,
+            .up_values = undefined,
         };
     }
 
@@ -73,15 +83,36 @@ pub const ScopeTracker = struct {
         return false;
     }
 
-    pub fn resolveLocal(self: ScopeTracker, name: []const u8) SearchResult {
+    pub fn resolveLocal(self: *ScopeTracker, name: []const u8) SearchResult {
         for (0..self.locals.count) |i| {
             const local = self.locals.peek(i);
             if (std.mem.eql(u8, local.name, name)) {
                 if (local.depth == -1) return .self_referencial;
-                return .{ .found = self.locals.count - 1 - i };
+                return .{ .local = self.locals.count - 1 - i };
             }
         }
-        return .not_in_scope;
+        return self.resolveUpValue(name);
+    }
+
+    fn resolveUpValue(self: *ScopeTracker, name: []const u8) SearchResult {
+        if (self.enclosing == null) return .not_in_scope;
+        const enclosing = self.enclosing.?;
+        const result_from_enclosing = enclosing.resolveLocal(name);
+        return switch (result_from_enclosing) {
+            .local => |index| .{ .up_value = self.addUpValue(index, true) },
+            .up_value => |index| .{ .up_value = self.addUpValue(index, false) },
+            else => result_from_enclosing,
+        };
+    }
+
+    fn addUpValue(self: *ScopeTracker, index: usize, is_local: bool) usize {
+        const up_value_count = self.function.up_value_count;
+        for (self.up_values[0..up_value_count], 0..) |up_value, i| {
+            if (up_value.index == index and up_value.is_local == is_local) return i;
+        }
+        self.up_values[up_value_count] = .{ .index = index, .is_local = is_local };
+        self.function.up_value_count += 1;
+        return up_value_count;
     }
 
     pub fn isLocal(self: ScopeTracker) bool {
@@ -96,6 +127,11 @@ pub const ScopeTracker = struct {
 const Local = struct {
     name: []const u8,
     depth: isize,
+};
+
+const UpValue = struct {
+    index: usize,
+    is_local: bool,
 };
 
 pub const Context = enum {

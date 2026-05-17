@@ -12,6 +12,12 @@ pub const LoxFunction = struct {
     arity: u8,
     chunk: bytecode.Chunk,
     name: ?[]const u8,
+    up_value_count: u9,
+};
+
+pub const Closure = struct {
+    obj: objects.Obj,
+    function: *LoxFunction,
 };
 
 pub const NativeFunction = struct {

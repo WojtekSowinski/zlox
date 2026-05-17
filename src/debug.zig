@@ -31,7 +31,9 @@ pub fn disassembleInstruction(instruction: bytecode.Instruction, chunk: bytecode
         .ret => std.debug.print("RETURN\n", .{}),
 
         inline .constant,
+        .closure,
         .long_constant,
+        .long_closure,
         => |index, tag| {
             const opName = comptime toUpper(@tagName(tag));
             std.debug.print(opName ++ (" " ** (21 - opName.len)) ++ "{d:0>4} '", .{index});

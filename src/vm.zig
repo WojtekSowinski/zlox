@@ -15,6 +15,7 @@ const String = object.String;
 const HashTable = @import("hash_table.zig").HashTable;
 const functions = @import("functions.zig");
 const LoxFunction = functions.LoxFunction;
+const Closure = functions.Closure;
 const NativeFunction = functions.NativeFunction;
 const NativeFn = functions.NativeFn;
 
@@ -25,7 +26,7 @@ fn emptyRead(context: *const anyopaque, buffer: []u8) !usize {
 }
 
 const CallFrame = struct {
-    function: *LoxFunction,
+    closure: *Closure,
     ip: usize,
     base_index: usize,
 };
@@ -136,19 +137,20 @@ pub const VM = struct {
         const function = try compiler.compile(source_code);
 
         try self.stack.push(.{ .object = &function.obj });
-        try self.callLoxFunction(function, 0);
+        const closure = try self.gc.newClosure(function);
+        self.stack.swap(.{ .object = &closure.obj });
+        try self.callClosure(closure, 0);
         try self.run();
-        //_ = self.stack.pop();
     }
 
     fn run(self: *Self) !void {
         var frame = self.frames.getRef(0);
         while (true) {
-            const instruction = frame.function.chunk.readInstruction(frame.ip);
+            const instruction = frame.closure.function.chunk.readInstruction(frame.ip);
             if (config.trace_execution) {
                 debug.logStack(self.*);
-                std.debug.print("{d:0>4} : ", .{frame.ip});
-                debug.disassembleInstruction(instruction, frame.function.chunk);
+                std.debug.print("{d:0>4}  =>  ", .{frame.ip});
+                debug.disassembleInstruction(instruction, frame.closure.function.chunk);
             }
             frame.ip += instruction.size();
             switch (instruction) {
@@ -258,6 +260,11 @@ pub const VM = struct {
                     if (self.stack.peek(0).isTruthy()) frame.ip += distance;
                 },
 
+                .closure, .long_closure => |index| {
+                    const function = self.readConstant(index).object.as(LoxFunction);
+                    const closure = try self.gc.newClosure(function);
+                    try self.stack.push(.{ .object = &closure.obj });
+                },
                 .call => |arg_count| {
                     try self.callValue(self.stack.peek(arg_count), arg_count);
                     frame = self.frames.getRef(0);
@@ -278,7 +285,7 @@ pub const VM = struct {
     }
 
     inline fn readConstant(self: Self, index: usize) Value {
-        return self.frames.peek(0).function.chunk.constants.items[index];
+        return self.frames.peek(0).closure.function.chunk.constants.items[index];
     }
 
     inline fn readString(self: Self, index: usize) *String {
@@ -319,7 +326,7 @@ pub const VM = struct {
         if (callee.isObject()) {
             const obj = callee.object;
             switch (obj.type) {
-                .lox_function => return self.callLoxFunction(obj.as(LoxFunction), arg_count),
+                .closure => return self.callClosure(obj.as(Closure), arg_count),
                 .native_function => {
                     const args = self.stack.topN(arg_count);
                     const result = try obj.as(NativeFunction).apply(self, args);
@@ -330,6 +337,7 @@ pub const VM = struct {
                 else => {},
             }
         }
+        try self.reportRuntimeError("Can only call functions and classes", .{});
         return error.TypeError;
     }
 
@@ -343,14 +351,15 @@ pub const VM = struct {
         self.stack.shrinkBy(2);
     }
 
-    fn callLoxFunction(self: *Self, fun: *LoxFunction, arg_count: u8) !void {
-        if (arg_count != fun.arity) {
-            try self.reportRuntimeError("Expected {d} arguments but got {d}.", .{ fun.arity, arg_count });
+    fn callClosure(self: *Self, closure: *Closure, arg_count: u8) !void {
+        const arity = closure.function.arity;
+        if (arg_count != arity) {
+            try self.reportRuntimeError("Expected {d} arguments but got {d}.", .{ arity, arg_count });
             return error.IncorrectArity;
         }
 
         try self.frames.push(.{
-            .function = fun,
+            .closure = closure,
             .ip = 0,
             .base_index = self.stack.count - arg_count - 1,
         });
@@ -371,7 +380,7 @@ pub const VM = struct {
         try self.error_writer.writeByte('\n');
         for (0..self.frames.count) |i| {
             const frame = self.frames.peek(i);
-            const function = frame.function;
+            const function = frame.closure.function;
             const instruction_index = frame.ip - 1;
             const line = try function.chunk.lines.get(instruction_index);
             const name = function.name orelse "script";
