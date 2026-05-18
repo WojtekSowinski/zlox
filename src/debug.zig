@@ -61,6 +61,9 @@ pub fn disassembleInstruction(instruction: bytecode.Instruction, chunk: bytecode
             std.debug.print(opName ++ (" " ** (21 - opName.len)) ++ "{d:0>4}\n", .{index});
         },
 
+        .make_upvalue_to_local => |index| std.debug.print("                     local {d}", .{index}),
+        .make_upvalue_to_upvalue => |index| std.debug.print("                     upvalue {d}", .{index}),
+
         inline else => |_, tag| {
             const opName = comptime toUpper(@tagName(tag));
             std.debug.print(opName ++ "\n", .{});
