@@ -50,8 +50,6 @@ pub fn disassembleInstruction(instruction: bytecode.Instruction, chunk: bytecode
         .long_def_global,
         .long_get_global,
         .long_set_global,
-        .long_get_local,
-        .long_set_local,
         .long_pop_many,
         .jump,
         .jump_back,

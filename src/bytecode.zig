@@ -29,8 +29,6 @@ pub const Instruction = union(enum) {
 
     set_local: ShortIndex,
     get_local: ShortIndex,
-    long_set_local: LongIndex,
-    long_get_local: LongIndex,
 
     jump: JumpDistance,
     jump_back: JumpDistance,
@@ -43,6 +41,10 @@ pub const Instruction = union(enum) {
 
     closure: ShortIndex,
     long_closure: LongIndex,
+    make_upvalue_to_local: ShortIndex,
+    make_upvalue_to_upvalue: ShortIndex,
+    get_upvalue: ShortIndex,
+    set_upvalue: ShortIndex,
 
     call: u8,
 
@@ -117,8 +119,6 @@ pub const Chunk = struct {
             .long_def_global,
             .long_get_global,
             .long_set_global,
-            .long_get_local,
-            .long_set_local,
             .long_pop_many,
             .long_closure,
             => |tag| {
@@ -133,6 +133,10 @@ pub const Chunk = struct {
             .set_local,
             .pop_many,
             .closure,
+            .make_upvalue_to_local,
+            .make_upvalue_to_upvalue,
+            .get_upvalue,
+            .set_upvalue,
             .call,
             => |tag| {
                 const index = ptr[1];
@@ -175,8 +179,6 @@ pub const Chunk = struct {
             .long_def_global,
             .long_get_global,
             .long_set_global,
-            .long_get_local,
-            .long_set_local,
             .long_pop_many,
             => |index| {
                 const new_bytes = try self.code.addManyAsArray(self.allocator, 3);

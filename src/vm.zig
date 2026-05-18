@@ -197,13 +197,18 @@ pub const VM = struct {
                     }
                 },
 
-                .get_local, .long_get_local => |index| {
+                .get_local => |index| {
                     try self.stack.push(self.stack.array[frame.base_index + index]);
                 },
 
-                .set_local, .long_set_local => |index| {
+                .set_local => |index| {
                     self.stack.array[frame.base_index + index] = self.stack.peek(0);
                 },
+
+                .make_upvalue_to_local => {}, // TODO: make upvalue
+                .make_upvalue_to_upvalue => {}, // TODO: make upvalue
+                .get_upvalue => {}, // TODO: get upvalue
+                .set_upvalue => {}, // TODO: set upvalue
 
                 .negate => {
                     switch (self.stack.peek(0)) {

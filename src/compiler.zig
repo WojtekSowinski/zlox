@@ -16,6 +16,7 @@ const Stack = @import("stack.zig").Stack;
 const WriterError = std.Io.Writer.Error;
 const scope_tracking = @import("scope_tracker.zig");
 const ScopeTracker = scope_tracking.ScopeTracker;
+const UpValue = scope_tracking.UpValue;
 const functions = @import("functions.zig");
 const LoxFunction = functions.LoxFunction;
 
@@ -420,8 +421,21 @@ fn function(self: *Self, context: scope_tracking.Context) InternalError!void {
 
     const new_function = try self.endCompilation();
     self.scope_tracker = function_scope.enclosing.?.*;
-    function_scope.deinit();
     try self.emitClosure(new_function);
+    for (function_scope.up_values[0..new_function.up_value_count]) |uv| {
+        try self.emitUpValueDeclaration(uv);
+    }
+    function_scope.deinit();
+}
+
+fn emitUpValueDeclaration(self: *Self, upvalue: UpValue) OOM!void {
+    std.debug.assert(upvalue.index <= bytecode.MAX_SHORT_INDEX);
+    const instruction: Instruction =
+        if (upvalue.is_local)
+            .{ .make_upvalue_to_local = @truncate(upvalue.index) }
+        else
+            .{ .make_upvalue_to_upvalue = @truncate(upvalue.index) };
+    try self.emitInstruction(instruction, self.parser.previous.line);
 }
 
 fn emitClosure(self: *Self, fun: *LoxFunction) InternalError!void {
@@ -475,8 +489,8 @@ fn declareLocal(self: *Self) InternalError!void {
     if (self.scope_tracker.isNameTaken(name.lexeme)) {
         try self.errorAtPrevious("Already a variable with this name in this scope");
     }
-    const index = try self.scope_tracker.addLocal(name.lexeme);
-    if (index > bytecode.MAX_LONG_INDEX) try self.errorAtPrevious("Too many local variables.");
+    const index = self.scope_tracker.addLocal(name.lexeme);
+    if (index > bytecode.MAX_SHORT_INDEX) try self.errorAtPrevious("Too many local variables.");
 }
 
 fn makeIdentifier(self: *Self, token: Token) OOM!usize {
@@ -582,47 +596,47 @@ fn emitVariable(self: *Self, name: Token, can_assign: bool) InternalError!void {
     const localIndex = self.scope_tracker.resolveLocal(name.lexeme);
     switch (localIndex) {
         .local => |arg| {
-            if (arg > bytecode.MAX_LONG_INDEX) try self.errorAtPrevious("Too many local variables.");
-            try self.emitSetOrGetAtIndex(
-                [_]OpCode{ .set_local, .long_set_local, .get_local, .long_get_local },
-                arg,
-                can_assign,
-            );
+            if (arg > bytecode.MAX_SHORT_INDEX) try self.errorAtPrevious("Too many local variables.");
+            try self.emitLocalAccess(@intCast(arg), can_assign);
         },
         .up_value => |arg| {
             if (arg > bytecode.MAX_SHORT_INDEX) try self.errorAtPrevious("Closure captures too many variables.");
-            try self.emitUpValue(@intCast(arg));
+            try self.emitUpValueAccess(@intCast(arg), can_assign);
         },
         .not_in_scope => {
             const arg = try self.makeIdentifier(name);
             if (arg > bytecode.MAX_LONG_INDEX) try self.errorAtPrevious("Too many global variables.");
-            try self.emitSetOrGetAtIndex(
-                [_]OpCode{ .set_global, .long_set_global, .get_global, .long_get_global },
-                arg,
-                can_assign,
-            );
+            try self.emitGlobalAccess(arg, can_assign);
         },
         .self_referencial => try self.errorAtPrevious("Can't read local variable in its own initializer."),
     }
 }
 
-fn emitUpValue(self: *Self, index: u8) OOM!void {
-    _ = self;
-    _ = index; // TODO: emit upvalue instruction
-}
-
-fn emitSetOrGetAtIndex(
-    self: *Self,
-    comptime opcodes: [4]OpCode,
-    arg: usize,
-    can_assign: bool,
-) InternalError!void {
-    std.debug.assert(arg <= bytecode.MAX_LONG_INDEX);
+fn emitLocalAccess(self: *Self, index: u8, can_assign: bool) InternalError!void {
     if (can_assign and try self.match(.equal)) {
         try self.expression();
-        try self.emitInstructionWithIndex(opcodes[0], opcodes[1], arg);
+        try self.emitInstruction(.{ .set_local = index }, self.parser.previous.line);
     } else {
-        try self.emitInstructionWithIndex(opcodes[2], opcodes[3], arg);
+        try self.emitInstruction(.{ .get_local = index }, self.parser.previous.line);
+    }
+}
+
+fn emitUpValueAccess(self: *Self, index: u8, can_assign: bool) InternalError!void {
+    if (can_assign and try self.match(.equal)) {
+        try self.expression();
+        try self.emitInstruction(.{ .set_upvalue = index }, self.parser.previous.line);
+    } else {
+        try self.emitInstruction(.{ .get_upvalue = index }, self.parser.previous.line);
+    }
+}
+
+fn emitGlobalAccess(self: *Self, index: usize, can_assign: bool) InternalError!void {
+    std.debug.assert(index <= bytecode.MAX_LONG_INDEX);
+    if (can_assign and try self.match(.equal)) {
+        try self.expression();
+        try self.emitInstructionWithIndex(.set_global, .long_set_global, index);
+    } else {
+        try self.emitInstructionWithIndex(.get_global, .long_get_global, index);
     }
 }
 

@@ -8,7 +8,8 @@ const LoxFunction = @import("functions.zig").LoxFunction;
 pub const ScopeTracker = struct {
     function: *LoxFunction,
     context: Context,
-    locals: Stack(Local),
+    locals: [256]Local,
+    locals_count: u9,
     scope_depth: isize,
     enclosing: ?*ScopeTracker,
     up_values: [256]UpValue,
@@ -26,27 +27,27 @@ pub const ScopeTracker = struct {
         name: ?[]const u8,
         enclosing: ?*ScopeTracker,
     ) OOM!ScopeTracker {
-        var locals = try Stack(Local).init(gc.allocator(), 256);
-        locals.push(.{ .depth = 0, .name = "" }) catch unreachable;
-        errdefer locals.deinit();
         const fun = try gc.newFunction(name);
-        return .{
+        var result: ScopeTracker = .{
             .function = fun,
             .context = context,
-            .locals = locals,
             .scope_depth = 0,
             .enclosing = enclosing,
             .up_values = undefined,
+            .locals = undefined,
+            .locals_count = 1,
         };
+        result.locals[0] = .{ .depth = 0, .name = "" };
+        return result;
     }
 
     pub fn reset(self: *ScopeTracker) void {
-        self.locals.clear();
+        self.locals_count = 0;
         self.scope_depth = 0;
     }
 
     pub fn deinit(self: *ScopeTracker) void {
-        self.locals.deinit();
+        _ = self;
     }
 
     pub fn enterScope(self: *ScopeTracker) void {
@@ -56,27 +57,28 @@ pub const ScopeTracker = struct {
     pub fn exitScope(self: *ScopeTracker) usize {
         self.scope_depth -= 1;
         var vars_popped: usize = 0;
-        while (self.locals.count > 0 and self.locals.peek(0).depth > self.scope_depth) {
+        while (self.locals_count > 0 and self.locals[self.locals_count - 1].depth > self.scope_depth) {
             vars_popped += 1;
-            _ = self.locals.pop();
+            self.locals_count -= 1;
         }
         return vars_popped;
     }
 
-    pub fn addLocal(self: *ScopeTracker, name: []const u8) OOM!usize {
-        try self.locals.push(.{ .name = name, .depth = -1 });
-        return self.locals.count - 1;
+    pub fn addLocal(self: *ScopeTracker, name: []const u8) usize {
+        if (self.locals_count < 256)
+            self.locals[self.locals_count] = .{ .name = name, .depth = -1 };
+        self.locals_count += 1;
+        return self.locals_count - 1;
     }
 
     pub fn markInitialized(self: *ScopeTracker) void {
         if (self.isGlobal()) return;
-        const latestLocal = self.locals.peek(0);
-        self.locals.swap(.{ .name = latestLocal.name, .depth = self.scope_depth });
+        self.locals[self.locals_count - 1].depth = self.scope_depth;
     }
 
     pub fn isNameTaken(self: ScopeTracker, name: []const u8) bool {
-        for (0..self.locals.count) |i| {
-            const local = self.locals.peek(i);
+        for (0..self.locals_count) |i| {
+            const local = self.locals[self.locals_count - 1 - i];
             if (local.depth != -1 and local.depth < self.scope_depth) return false;
             if (std.mem.eql(u8, local.name, name)) return true;
         }
@@ -84,11 +86,12 @@ pub const ScopeTracker = struct {
     }
 
     pub fn resolveLocal(self: *ScopeTracker, name: []const u8) SearchResult {
-        for (0..self.locals.count) |i| {
-            const local = self.locals.peek(i);
+        for (0..self.locals_count) |i| {
+            const index = self.locals_count - 1 - i;
+            const local = self.locals[index];
             if (std.mem.eql(u8, local.name, name)) {
                 if (local.depth == -1) return .self_referencial;
-                return .{ .local = self.locals.count - 1 - i };
+                return .{ .local = index };
             }
         }
         return self.resolveUpValue(name);
@@ -129,7 +132,7 @@ const Local = struct {
     depth: isize,
 };
 
-const UpValue = struct {
+pub const UpValue = struct {
     index: usize,
     is_local: bool,
 };
